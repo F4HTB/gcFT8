@@ -40,7 +40,8 @@ typedef struct
 	
 	bool TRX_status;
 	pthread_mutex_t TRX_status_lock;
-	pthread_cond_t TRX_status_cond;
+	pthread_cond_t RX_status_cond;
+	pthread_cond_t TX_status_cond;
 	
 	
 } FT8info;
@@ -61,7 +62,8 @@ FT8info FT8 = {
 	
 	.TRX_status = _RX_,
 	.TRX_status_lock = PTHREAD_MUTEX_INITIALIZER,
-	.TRX_status_cond = PTHREAD_COND_INITIALIZER
+	.RX_status_cond = PTHREAD_COND_INITIALIZER,
+	.TX_status_cond = PTHREAD_COND_INITIALIZER
 	
 	
 };
@@ -909,9 +911,10 @@ void RX_FT8()
 			monitor_free(&mon);
 
 			if(*FT8.QSO_dist_CALLSIGN != 0) {
+				printf( "UnLock TX thread\n");
 				pthread_mutex_lock(&FT8.TRX_status_lock);
 				FT8.TRX_status = _TX_;
-				pthread_cond_signal(&FT8.TRX_status_cond);
+				pthread_cond_signal(&FT8.TX_status_cond);
 				pthread_mutex_unlock(&FT8.TRX_status_lock);				
 			}
 		
@@ -919,7 +922,7 @@ void RX_FT8()
 		else{
 			printf( "Lock RX thread\n");
 			pthread_mutex_lock(&FT8.TRX_status_lock);
-			pthread_cond_wait(&FT8.TRX_status_cond, &FT8.TRX_status_lock);
+			pthread_cond_wait(&FT8.RX_status_cond, &FT8.TRX_status_lock);
 			pthread_mutex_unlock(&FT8.TRX_status_lock);		
 		}
 		
@@ -1078,13 +1081,13 @@ void TX_FT8()
 			printf( "UnLock RX thread\n");
 			pthread_mutex_lock(&FT8.TRX_status_lock);
 			FT8.TRX_status = _RX_;
-			pthread_cond_signal(&FT8.TRX_status_cond);
+			pthread_cond_signal(&FT8.RX_status_cond);
 			pthread_mutex_unlock(&FT8.TRX_status_lock);
 		}
 		else{
 			printf( "Lock TX thread\n");
 			pthread_mutex_lock(&FT8.TRX_status_lock);
-			pthread_cond_wait(&FT8.TRX_status_cond, &FT8.TRX_status_lock);
+			pthread_cond_wait(&FT8.TX_status_cond, &FT8.TRX_status_lock);
 			pthread_mutex_unlock(&FT8.TRX_status_lock);		
 		}
 	}
