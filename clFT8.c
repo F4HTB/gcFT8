@@ -8,6 +8,7 @@
 #include <sys/time.h>
 
 #include "ft8/unpack.h"
+#include "ft8/pack.h"
 #include "ft8/ldpc.h"
 #include "ft8/decode.h"
 #include "ft8/constants.h"
@@ -18,43 +19,25 @@
 
 #include "clFT8.h"
 
+#include "common/wave.h"
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Global
 
 /* Global FT8 info. */
-typedef struct
-{
-	char Local_CALLSIGN[20];
-	char Local_LOCATOR[20];
-	float Local_latlon[2];
-	bool TX_enable;
-	
-	char QSO_dist_CALLSIGN[20];
-	char QSO_dist_LOCATOR[20];
-	char QSO_dist_MESSAGE[20];
-	int  QSO_dist_SNR;
-	
-	char QSO_RESPONSES[6][50];
-	int QSO_Index_to_rep;
-	
-	bool TRX_status;
-	pthread_mutex_t TRX_status_lock;
-	pthread_cond_t RX_status_cond;
-	pthread_cond_t TX_status_cond;
-	
-	
-} FT8info;
+
 
 FT8info FT8 = {
 	.Local_CALLSIGN={'F','4','J','J','J','\0'},
-	.Local_LOCATOR={'J','N','3','8','t','g','\0'},
+	.Local_LOCATOR={'J','N','3','8','\0'},
 	.TX_enable=1,
 	
 	.QSO_dist_CALLSIGN="",
 	.QSO_dist_LOCATOR="",
 	.QSO_dist_MESSAGE="",
 	.QSO_dist_SNR=0,
+	.QSO_dist_FREQUENCY=0,
 	
 	
 	.QSO_RESPONSES={'\0','\0','\0','\0','\0','\0'},
@@ -135,32 +118,29 @@ void latLonForGrid(char * grid, float * latlon) {
 			latlon[1] += 0.5 * 2;
 			latlon[0] -= 90;                                                  // Locator lat/lon origin shift.
 			latlon[1] -= 180;
-		}
+			}
 	}
 };
 
 
 float latLonDist(float * latlonA, float * latlonB){
-	return acos(sin(	(latlonA[0] * M_PI / 180.0f)	)*sin(	(latlonA[1] * M_PI / 180.0f)	)+cos(	(latlonA[0] * M_PI / 180.0f)	)*cos(	(latlonA[1] * M_PI / 180.0f)	)*cos(	((latlonB[0]-latlonB[1]) * M_PI / 180.0f)	))*6371. ;
+	return acos(sin(latlonA[0] * M_PI / 180.0f) * sin(latlonB[0] * M_PI / 180.0f) + cos(latlonA[0] * M_PI / 180.0f) * cos(latlonB[0] * M_PI / 180.0f) * cos((latlonA[1] * M_PI / 180.0f) - (latlonB[1] * M_PI / 180.0f)))*6371.0;
 }
 
 void unpackFT8mess(char * message_text, char * unpackeds0, char * unpackeds1, char * unpackeds2){
 	char * NullToken = strtok(message_text, " ");
 	if(NullToken != 0){
 		memcpy(unpackeds0, NullToken, sizeof(NullToken));
-		// strcpy(unpackeds0, NullToken);
 	}
 	
 	NullToken = strtok(0, " ");	
 	if(NullToken != 0){
 		memcpy(unpackeds1, NullToken, sizeof(NullToken));
-		// strcpy(unpackeds1, NullToken);
 	}
 	
 	NullToken = strtok(0, " ");		
 	if(NullToken != 0){
 		memcpy(unpackeds2, NullToken, sizeof(NullToken));
-		// strcpy(unpackeds2, NullToken);
 	}
 }
 
@@ -168,22 +148,6 @@ void unpackFT8mess(char * message_text, char * unpackeds0, char * unpackeds1, ch
 //Audio
 
 /* Global sound info. */
-typedef struct
-{
-	char *capture_sound_device;
-	unsigned int capture_sound_rate;
-	snd_pcm_t *capture_handle;
-	
-	char *playback_sound_device;
-	int playback_buffer_frames;
-	unsigned int playback_sound_rate;
-	unsigned int playback_num_of_samples, playback_buffer_size;
-	snd_pcm_t *playback_handle;
-	char *playback_buffer;
-
-} soundInfo;
-
-
 soundInfo sound={
 	.capture_sound_device = (char*)"default",
 	.capture_sound_rate = 12000,
@@ -395,7 +359,6 @@ void playback_audioInit(void)
 
 void playback_audioDeInit(void)
 { 
-	free(sound.playback_buffer);
 	snd_pcm_close (sound.playback_handle);
 }
 
@@ -443,7 +406,7 @@ void synth_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol_bt, fl
     int n_wave = n_sym * n_spsym;                            // Number of output samples
     float hmod = 1.0f;
 
-    printf("n_spsym = %d\n", n_spsym);
+    //printf("n_spsym = %d\n", n_spsym);
     // Compute the smoothed frequency waveform.
     // Length = (nsym+2)*n_spsym samples, first and last symbols extended
     float dphi_peak = 2 * M_PI * hmod / n_spsym;
@@ -543,36 +506,6 @@ void waterfall_free(waterfall_t* me)
 {
 	free(me->mag);
 }
-
-/// Configuration options for FT4/FT8 monitor
-typedef struct
-{
-	float f_min;			 ///< Lower frequency bound for analysis
-	float f_max;			 ///< Upper frequency bound for analysis
-	int sample_rate;		 ///< Sample rate in Hertz
-	int time_osr;			///< Number of time subdivisions
-	int freq_osr;			///< Number of frequency subdivisions
-	ftx_protocol_t protocol; ///< Protocol: FT4 or FT8
-} monitor_config_t;
-
-/// FT4/FT8 monitor object that manages DSP processing of incoming audio data
-/// and prepares a waterfall object
-typedef struct
-{
-	float symbol_period; ///< FT4/FT8 symbol period in seconds
-	int block_size;	  ///< Number of samples per symbol (block)
-	int subblock_size;   ///< Analysis shift size (number of samples)
-	int nfft;			///< FFT size
-	float fft_norm;	  ///< FFT normalization factor
-	float* window;	   ///< Window function for STFT analysis (nfft samples)
-	float* last_frame;   ///< Current STFT analysis frame (nfft samples)
-	waterfall_t wf;	  ///< Waterfall object
-	float max_mag;	   ///< Maximum detected magnitude (debug stats)
-
-	// KISS FFT housekeeping variables
-	void* fft_work;		///< Work area required by Kiss FFT
-	kiss_fftr_cfg fft_cfg; ///< Kiss FFT housekeeping object
-} monitor_t;
 
 void monitor_init(monitor_t* me, const monitor_config_t* cfg)
 {
@@ -697,6 +630,24 @@ float getFrame(char *buffer, int i)
 	return ((float)(buffer[(2 * i)] & 0xFF) + ((buffer[(2 * i) + 1] & 0xFF) << 8)) / 32768.0f;
 }
 
+void unlock_TX_thread(){
+	printf( "UnLock TX thread\n");
+	pthread_mutex_lock(&FT8.TRX_status_lock);
+	FT8.TRX_status = _TX_;
+	pthread_cond_signal(&FT8.TX_status_cond);
+	pthread_mutex_unlock(&FT8.TRX_status_lock);
+}
+
+void unlock_RX_thread(){
+	printf( "UnLock RX thread\n");
+	pthread_mutex_lock(&FT8.TRX_status_lock);
+	FT8.TRX_status = _RX_;
+	pthread_cond_signal(&FT8.RX_status_cond);
+	pthread_mutex_unlock(&FT8.TRX_status_lock);
+}
+
+
+
 void RX_FT8()
 {
 	
@@ -779,6 +730,7 @@ void RX_FT8()
 
 			//Creat array for analyse
 			char AnalyseArray[num_candidates][3][25];
+			float  AnalyseArrayFreqInfo[num_candidates];
 			int countanalyse=0;
 
 			// Hash table for decoded messages (to check for duplicates)
@@ -869,15 +821,27 @@ void RX_FT8()
 					
 					printDateTime();
 					
-					if (strncmp(message.text, FT8.Local_CALLSIGN, strlen(FT8.Local_CALLSIGN)) == 0) {
+					if ((strncmp(message.text, FT8.Local_CALLSIGN, strlen(FT8.Local_CALLSIGN)) == 0) && (countanalyse>-1)) {
+						
+						countanalyse=-1;
 						printf(" %3d %+4.2f %4.0f ~  \e[1;31m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
 						unpackFT8mess(message.text,AnalyseArray[0][0],AnalyseArray[0][1],AnalyseArray[0][2]);
-						countanalyse=-1;
+						
+						strcpy(FT8.QSO_dist_CALLSIGN, AnalyseArray[0][1]);
+						strcpy(FT8.QSO_dist_LOCATOR, AnalyseArray[0][2]);
+						strcpy(FT8.QSO_dist_MESSAGE, AnalyseArray[0][3]);
+						FT8.QSO_dist_FREQUENCY=freq_hz;
+						
+						unlock_TX_thread();
+						
 					}
-					if ((strncmp(message.text,"CQ",2) == 0) && (countanalyse>-1)) {
+					else if ((strncmp(message.text,"CQ",2) == 0) && (countanalyse>-1)) {
+						
 						printf(" %3d %+4.2f %4.0f ~  \e[1;34m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
 						unpackFT8mess(message.text,AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
+						AnalyseArrayFreqInfo[countanalyse]=freq_hz;
 						countanalyse++;
+					
 					}else{
 						printf(" %3d %+4.2f %4.0f ~  %s\n", cand->score, time_sec, freq_hz, message.text);
 					}
@@ -896,9 +860,14 @@ void RX_FT8()
 					float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
 					if(dist < new_dist){index_from_ope=i;dist=new_dist;}
 				}
-				printf("*Selected for new QSO: \e[1;31m%s at %f km\e[0m\n", AnalyseArray[index_from_ope][1],dist);
 				strcpy(FT8.QSO_dist_CALLSIGN, AnalyseArray[index_from_ope][1]);
 				strcpy(FT8.QSO_dist_LOCATOR, AnalyseArray[index_from_ope][2]);
+				FT8.QSO_Index_to_rep=0;
+				FT8.QSO_dist_FREQUENCY=AnalyseArrayFreqInfo[index_from_ope];
+				printf("*Selected for new QSO: \e[1;31m%s at %f km (%s) on %f hz (seq QSO on %d) \e[0m\n", FT8.QSO_dist_CALLSIGN,dist,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_FREQUENCY,FT8.QSO_Index_to_rep);
+				
+				unlock_TX_thread();
+				
 			}
 			
 			
@@ -909,14 +878,6 @@ void RX_FT8()
 			#endif
 			
 			monitor_free(&mon);
-
-			if(*FT8.QSO_dist_CALLSIGN != 0) {
-				printf( "UnLock TX thread\n");
-				pthread_mutex_lock(&FT8.TRX_status_lock);
-				FT8.TRX_status = _TX_;
-				pthread_cond_signal(&FT8.TX_status_cond);
-				pthread_mutex_unlock(&FT8.TRX_status_lock);				
-			}
 		
 		}
 		else{
@@ -1009,6 +970,38 @@ void Reinit_FT8_QSO()
 	FT8.QSO_dist_SNR=0;
 }
 
+int get_seq_qso_to_rep(char * mess)
+{
+	char *ptr;
+	ptr = strstr(mess, "RRR");
+	int rep = -1;
+	
+	if (ptr != NULL) /* Substring found */
+	{
+		rep = 4;
+	}
+	
+	ptr = strstr(mess, "-");
+	if (ptr != NULL && isdigit(mess[strlen(mess)-1])) /* Substring found */
+	{
+		rep = 2;
+	}
+	
+	ptr = strstr(mess, "73");
+	
+	if (ptr != NULL) /* Substring found */
+	{
+		rep = 10;
+	}
+	
+	return rep;
+	
+}
+
+void log_FT8_QSO(){
+	printf("we can log the qso");
+}
+
 void TX_FT8()
 {
 	while(1){
@@ -1017,72 +1010,88 @@ void TX_FT8()
 		pthread_mutex_unlock(&FT8.TRX_status_lock);
 		if(stat == _TX_){
 			
-			if(FT8.QSO_RESPONSES[0][0]=='\0'){gen_FT8_responses();}
+			if((FT8.QSO_RESPONSES[0][0]=='\0') || (FT8.QSO_Index_to_rep == 0)){gen_FT8_responses();}
 			
-			// uint8_t packed[FTX_LDPC_K_BYTES];
-			// int rc = pack77(message, packed);
-			// if (rc < 0)
-			// {
-				// printf("Cannot parse message!\n");
-				// printf("RC = %d\n", rc);
-				// return -2;
-			// }
-
-			// printf("Packed data: ");
-			// for (int j = 0; j < 10; ++j)
-			// {
-				// printf("%02x ", packed[j]);
-			// }
-			// printf("\n");
-
-			// int num_tones = FT8_NN;
-			// float symbol_period = FT8_SYMBOL_PERIOD;
-			// float symbol_bt = FT8_SYMBOL_BT;
-			// float slot_time = FT8_SLOT_TIME;
-
-			// // Second, encode the binary message as a sequence of FSK tones
-			// uint8_t tones[num_tones]; // Array of 79 tones (symbols)
-			// ft8_encode(packed, tones);
+			if(FT8.QSO_Index_to_rep == -1){FT8.QSO_Index_to_rep=get_seq_qso_to_rep(FT8.QSO_dist_MESSAGE);}
 			
-
-			// printf("FSK tones: ");
-			// for (int j = 0; j < num_tones; ++j)
-			// {
-				// printf("%d", tones[j]);
-			// }
-			// printf("\n");
-
-			// // Third, convert the FSK tones into an audio signal
-			// int sample_rate = 12000;
-			// int num_samples = (int)(0.5f + num_tones * symbol_period * sample_rate); // Number of samples in the data signal
-			// int num_silence = (slot_time * sample_rate - num_samples) / 2;           // Silence padding at both ends to make 15 seconds
-			// int num_total_samples = num_silence + num_samples + num_silence;         // Number of samples in the padded signal
-			// float signal[num_total_samples];
-			// for (int i = 0; i < num_silence; i++)
-			// {
-				// signal[i] = 0;
-				// signal[i + num_samples + num_silence] = 0;
-			// }
-
-			// // Synthesize waveform data (signal) and save it as WAV file
-			// synth_gfsk(tones, num_tones, frequency, symbol_bt, symbol_period, sample_rate, signal + num_silence);
-			// save_wav(signal, num_total_samples, sample_rate, wav_path);
-
-			// return 0;	
+			if(FT8.QSO_Index_to_rep==10)
+			{
+				unlock_RX_thread();
+				log_FT8_QSO();
+				//Empty QSO variable
+				pthread_mutex_lock(&FT8.TRX_status_lock);
+				Reinit_FT8_QSO();
+				pthread_mutex_unlock(&FT8.TRX_status_lock);
+				
+			}
+			else if(FT8.QSO_Index_to_rep!=-1){
 			
 			
+				uint8_t packed[FTX_LDPC_K_BYTES];
+				int rc = pack77(FT8.QSO_RESPONSES[FT8.QSO_Index_to_rep], packed);
+				if (rc < 0)
+				{
+					printf("Cannot parse message!\n");
+					printf("RC = %d\n", rc);
+				}
+
+				printf("Packed data: ");
+				for (int j = 0; j < 10; ++j)
+				{
+					printf("%02x ", packed[j]);
+				}
+				printf("\n");
+
+				int num_tones = FT8_NN;
+				float symbol_period = FT8_SYMBOL_PERIOD;
+				float symbol_bt = FT8_SYMBOL_BT;
+				float slot_time = FT8_SLOT_TIME;
+
+				// Second, encode the binary message as a sequence of FSK tones
+				uint8_t tones[num_tones]; // Array of 79 tones (symbols)
+				ft8_encode(packed, tones);
+				
+
+				printf("FSK tones: ");
+				for (int j = 0; j < num_tones; ++j)
+				{
+					printf("%d", tones[j]);
+				}
+				printf("\n");
+
+				// Third, convert the FSK tones into an audio signal
+				int sample_rate = sound.playback_sound_rate;
+				int num_samples = (int)(0.5f + num_tones * symbol_period * sample_rate); // Number of samples in the data signal
+				int num_total_samples = num_samples;         // Number of samples in the padded signal
+				float signal[num_total_samples];
+				
+				synth_gfsk(tones, num_tones, FT8.QSO_dist_FREQUENCY, symbol_bt, symbol_period, sample_rate, signal);
+				
+				int16_t* raw_data = (int16_t*)malloc(num_samples*2); // num_samples * numChannels * bitsPerSample / 8;
+
+				for (int i = 0; i < num_samples; i++)
+				{
+					float x = signal[i];
+					if (x > 1.0)
+					x = 1.0;
+					else if (x < -1.0)
+					x = -1.0;
+					raw_data[i] = (int)(0.5 + (x * 32767.0));
+				}
+
+				register snd_pcm_uframes_t	count, frames;
+				
+				waitforstart();
+				
+				for(count = 0; count < num_samples; count += frames)
+				{
+					frames = snd_pcm_writei(sound.playback_handle, raw_data+count, num_samples - count);
+				}
 			
-			//Empty QSO variable
-			pthread_mutex_lock(&FT8.TRX_status_lock);
-			Reinit_FT8_QSO();
-			pthread_mutex_unlock(&FT8.TRX_status_lock);
+			}
 			
 			//unlock thread RX
-			printf( "UnLock RX thread\n");
-			pthread_mutex_lock(&FT8.TRX_status_lock);
-			FT8.TRX_status = _RX_;
-			pthread_cond_signal(&FT8.RX_status_cond);
-			pthread_mutex_unlock(&FT8.TRX_status_lock);
+			unlock_RX_thread();
 		}
 		else{
 			printf( "Lock TX thread\n");
