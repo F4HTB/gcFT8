@@ -30,6 +30,11 @@ typedef struct
 	pthread_cond_t RX_status_cond;
 	pthread_cond_t TX_status_cond;
 	
+	int Tranceiver_VFOA_Freq;
+	
+	char log_file_name[20];
+	char infos_to_log [200];
+	
 	
 } FT8info;
 
@@ -79,3 +84,22 @@ typedef struct
 	void* fft_work;		///< Work area required by Kiss FFT
 	kiss_fftr_cfg fft_cfg; ///< Kiss FFT housekeeping object
 } monitor_t;
+
+//serial
+
+typedef struct
+{
+	cssl_t *port;
+	char pathname[20];
+	int rtscts;
+	int xonxoff;
+	int baud;
+	int bits;
+	int parity;
+	int stopbits;
+	int finished;
+} serial_t;
+
+//Functions
+
+void tranceiver_rtx(bool ptt);

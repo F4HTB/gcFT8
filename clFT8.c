@@ -17,9 +17,11 @@
 
 #include "fft/kiss_fftr.h"
 
+#include "serial/cssl.h"
+
 #include "clFT8.h"
 
-#include "common/wave.h"
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -46,11 +48,38 @@ FT8info FT8 = {
 	.TRX_status = _RX_,
 	.TRX_status_lock = PTHREAD_MUTEX_INITIALIZER,
 	.RX_status_cond = PTHREAD_COND_INITIALIZER,
-	.TX_status_cond = PTHREAD_COND_INITIALIZER
+	.TX_status_cond = PTHREAD_COND_INITIALIZER,
+	
+	.Tranceiver_VFOA_Freq = 14074000,
+	
+	.log_file_name = "QSO.log",
+	.infos_to_log[0] = '\0'
 	
 	
 };
 
+/* Global sound info. */
+soundInfo sound={
+	.capture_sound_device = (char*)"default",
+	.capture_sound_rate = 12000,
+	
+	.playback_sound_device = (char*)"default",
+	.playback_buffer_frames = 1024,
+	.playback_sound_rate = 12000
+};
+
+/* Global serial info. */
+
+serial_t serial = {
+	.pathname="/dev/ttyACM0",
+	.rtscts=0,
+	.xonxoff=0,
+	.baud=9600,
+	.bits=8,
+	.parity=0,
+	.stopbits=1,
+	.finished=0
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Divers
@@ -70,6 +99,14 @@ double now()
 	struct timeval tv;
 	gettimeofday(&tv, 0);
 	return tv.tv_sec + tv.tv_usec / 1000000.0;
+}
+
+void advance_cursor() {
+  static int pos=0;
+  char cursor[4]={'/','-','\\','|'};
+  printf("%c\b", cursor[pos]);
+  fflush(stdout);
+  pos = (pos+1) % 4;
 }
 
 void waitforstart(){
@@ -147,15 +184,7 @@ void unpackFT8mess(char * message_text, char * unpackeds0, char * unpackeds1, ch
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Audio
 
-/* Global sound info. */
-soundInfo sound={
-	.capture_sound_device = (char*)"default",
-	.capture_sound_rate = 12000,
-	
-	.playback_sound_device = (char*)"default",
-	.playback_buffer_frames = 1024,
-	.playback_sound_rate = 12000
-};
+
 
 /* Open and init the default recording device. */
 void capture_audioInit(void)
@@ -999,7 +1028,18 @@ int get_seq_qso_to_rep(char * mess)
 }
 
 void log_FT8_QSO(){
-	printf("we can log the qso");
+	printf("we can log the qso %s", FT8.infos_to_log);
+	FILE *fptr;
+	fptr = fopen(FT8.log_file_name,"ab");
+	if(fptr == NULL)
+	{
+		printf("Error with QSO log file!");   
+		exit(1);             
+	}
+	fprintf(fptr,FT8.infos_to_log);
+	FT8.infos_to_log[0] = '\0';
+	fclose(fptr);
+	
 }
 
 void TX_FT8()
@@ -1017,7 +1057,7 @@ void TX_FT8()
 			if(FT8.QSO_Index_to_rep==10)
 			{
 				unlock_RX_thread();
-				log_FT8_QSO();
+				sprintf(FT8.infos_to_log, "%s	%s	%d	%f",FT8.QSO_dist_CALLSIGN,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_SNR,FT8.QSO_dist_FREQUENCY + (float)FT8.Tranceiver_VFOA_Freq);
 				//Empty QSO variable
 				pthread_mutex_lock(&FT8.TRX_status_lock);
 				Reinit_FT8_QSO();
@@ -1062,14 +1102,21 @@ void TX_FT8()
 				// Third, convert the FSK tones into an audio signal
 				int sample_rate = sound.playback_sound_rate;
 				int num_samples = (int)(0.5f + num_tones * symbol_period * sample_rate); // Number of samples in the data signal
-				int num_total_samples = num_samples;         // Number of samples in the padded signal
+				int num_silence = (slot_time * sample_rate - num_samples) / 2;
+				int num_total_samples = num_silence + num_samples + num_silence;         // Number of samples in the padded signal
 				float signal[num_total_samples];
+				
+				for (int i = 0; i < num_silence; i++)
+				{
+					signal[i] = 0;
+					signal[i + num_samples + num_silence] = 0;
+				}
 				
 				synth_gfsk(tones, num_tones, FT8.QSO_dist_FREQUENCY, symbol_bt, symbol_period, sample_rate, signal);
 				
-				int16_t* raw_data = (int16_t*)malloc(num_samples*2); // num_samples * numChannels * bitsPerSample / 8;
+				int16_t * raw_data = (int16_t*)malloc(num_total_samples*sizeof(int16_t)); // num_samples * numChannels * bitsPerSample / 8;
 
-				for (int i = 0; i < num_samples; i++)
+				for (int i = 0; i < num_total_samples; i++)
 				{
 					float x = signal[i];
 					if (x > 1.0)
@@ -1082,11 +1129,40 @@ void TX_FT8()
 				register snd_pcm_uframes_t	count, frames;
 				
 				waitforstart();
+				printDateTime();
+				// tranceiver_rtx(_TX_);
+				printf("send message %d/%d",frames,num_total_samples);
 				
-				for(count = 0; count < num_samples; count += frames)
+				
+				count = 0;
+				do
 				{
-					frames = snd_pcm_writei(sound.playback_handle, raw_data+count, num_samples - count);
-				}
+					frames = snd_pcm_writei(sound.playback_handle, raw_data + count, num_total_samples - count);
+
+					// If an error, try to recover from it
+					if (frames < 0){frames = snd_pcm_recover(sound.playback_handle, frames, 0);}
+					if (frames < 0)
+					{
+						printf("Error playing wave: %s\n", snd_strerror(frames));
+						break;
+					}
+
+					// Update our pointer
+					count += frames;
+
+				} while (count < num_total_samples);
+				
+				if (count == num_total_samples){snd_pcm_drain(sound.playback_handle);}
+				
+				// for(count = 0; count < num_total_samples; count += frames)
+				// {
+					// frames = snd_pcm_writei(sound.playback_handle, raw_data+count, num_total_samples - count);
+				// }
+				// snd_pcm_drain(sound.playback_handle);
+				printDateTime();
+				printf("stop send message");
+				// tranceiver_rtx(_RX_);
+				free(raw_data);
 			
 			}
 			
@@ -1113,15 +1189,66 @@ void * Thread_TX(void *arg) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//serial and tranceiver commands
+
+static void tranceiver_callback(int id,uint8_t *buf,int length)
+{
+    int i;
+    for(i=0;i<length;i++) {
+		switch (buf[i]) {
+		case 0x04:  /* Ctrl-D */
+			serial.finished=1;
+			return;
+		case '\r': /* replace \r with \n */
+			buf[i]='\n';
+		}
+		// putchar(buf[i]);
+    }
+	printf("serial: %s",buf);
+    fflush(stdout);
+}
+
+int serial_init(){
+    cssl_start();
+    serial.port=cssl_open(serial.pathname,tranceiver_callback,0,serial.baud,serial.bits,serial.parity,serial.stopbits);
+	cssl_setflowcontrol(serial.port,serial.rtscts,serial.xonxoff);
+    if (!serial.port) {
+	printf("Serial error %s\n",cssl_geterrormsg());
+	return -1;
+    }else{return 0;}
+}
+
+void tranceiver_set_freq(int freq)
+{
+	char str[16];
+	sprintf(str,"FA%11.11d;",freq);
+	cssl_putstring(serial.port,str);
+}
+
+void tranceiver_init()
+{
+	cssl_putstring(serial.port,"FR0;"); //Set receive on VFO_A
+	cssl_putstring(serial.port,"FT0;"); //Set Transmit on VFO_A
+	cssl_putstring(serial.port,"Q10;"); //Set USB mode
+	tranceiver_set_freq(FT8.Tranceiver_VFOA_Freq); //Set frequency stored
+}
+
+void tranceiver_rtx(bool ptt)
+{
+	if (ptt == _TX_){printf("tranceiver ptt on\n");cssl_putstring(serial.port,"TX;");} //Set receiving
+	else if (ptt == _RX_){printf("tranceiver ptt off\n");cssl_putstring(serial.port,"RX;");}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //main
 int main (int argc, char *argv[])
 {
 	int c;
-	while ((c = getopt (argc, argv, "hd:C:L:")) != -1)
+	while ((c = getopt (argc, argv, "hd:C:L:F:S:")) != -1)
 		switch (c)
 		{
 			case 'h':
-				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -c F4JJJ\n");
+				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0\n");
 				exit(0);
 				break;
 			case 'd':
@@ -1137,6 +1264,14 @@ int main (int argc, char *argv[])
 				strcpy( FT8.Local_LOCATOR, optarg );
 				break;
 				return 1;
+			case 'F':
+				FT8.Tranceiver_VFOA_Freq = atoi(optarg);
+				break;
+				return 1;
+			case 'S':
+				strcpy( serial.pathname, optarg );
+				break;
+				return 1;
 			default:
 				abort ();
 		}
@@ -1149,6 +1284,18 @@ int main (int argc, char *argv[])
 	capture_audioInit();
 	playback_audioInit();
 	
+	printf("Starting with this:\n"
+		"-set Freq to %d\n"
+		"-your callsing is %s\n"
+		"-your locator is %s\n"
+		"-TRX serial port is %s\n"
+		"-Sound device is %s\n",
+		FT8.Tranceiver_VFOA_Freq,FT8.Local_CALLSIGN,FT8.Local_LOCATOR,serial.pathname,sound.capture_sound_device);
+		
+	int serres = serial_init();
+	if(serres==-1){printf("Could not open serial port.");}
+	else{tranceiver_init();}
+	
 	pthread_t thread_RX;
 	pthread_create(&thread_RX, NULL, Thread_RX, NULL);
 	
@@ -1157,7 +1304,9 @@ int main (int argc, char *argv[])
 	
 	while (1)
 	{
-		sleep(1);
+		usleep(500000);
+		advance_cursor();
+		if(FT8.infos_to_log[0] != '\0'){log_FT8_QSO();}
 		#if DEBUG
 		printf("wait\n");
 		#endif
