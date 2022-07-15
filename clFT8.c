@@ -870,6 +870,7 @@ void RX_FT8()
 						strcpy(FT8.QSO_dist_CALLSIGN, AnalyseArray[0][1]);
 						strcpy(FT8.QSO_dist_MESSAGE, AnalyseArray[0][2]);
 						FT8.QSO_dist_FREQUENCY=freq_hz;
+						FT8.QSO_dist_SNR = (cand->score -30)/2;
 						FT8.QSO_Index_to_rep = -1;
 				
 						pthread_mutex_unlock(&FT8.TRX_status_lock);
@@ -988,8 +989,8 @@ void RX_FT8()
 void gen_FT8_responses()
 {
 	sprintf(FT8.QSO_RESPONSES[0], "%s %s %s", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.Local_LOCATOR); 
-	sprintf(FT8.QSO_RESPONSES[1], "%s %s %+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
-	sprintf(FT8.QSO_RESPONSES[2], "%s %s R%+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	sprintf(FT8.QSO_RESPONSES[1], "%s %s %+1.2d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	sprintf(FT8.QSO_RESPONSES[2], "%s %s R%+1.2d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
 	sprintf(FT8.QSO_RESPONSES[3], "%s %s RRR", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 	sprintf(FT8.QSO_RESPONSES[4], "%s %s 73", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 	
@@ -1281,38 +1282,44 @@ void * Thread_TX(void *arg) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //serial and tranceiver commands
 
-static void tranceiver_callback(int id,uint8_t *buf,int length)
-{
-    int i;
-    for(i=0;i<length;i++) {
-		switch (buf[i]) {
-		case 0x04:  /* Ctrl-D */
-			serial.finished=1;
-			return;
-		case '\r': /* replace \r with \n */
-			buf[i]='\n';
-		}
-		// putchar(buf[i]);
-    }
-	printf("serial: %s",buf);
-    fflush(stdout);
-}
-
 int serial_init(){
     cssl_start();
-    serial.port=cssl_open(serial.pathname,tranceiver_callback,0,serial.baud,serial.bits,serial.parity,serial.stopbits);
+    serial.port=cssl_open(serial.pathname,NULL,0,serial.baud,serial.bits,serial.parity,serial.stopbits);
 	cssl_setflowcontrol(serial.port,serial.rtscts,serial.xonxoff);
+	cssl_settimeout(serial.port,500);
     if (!serial.port) {
 	printf("Serial error %s\n",cssl_geterrormsg());
 	return -1;
     }else{return 0;}
 }
 
-void tranceiver_set_freq(int freq)
+void get_serial_rep(char rep[16])
 {
-	char str[16];
-	sprintf(str,"FA%11.11d;",freq);
-	cssl_putstring(serial.port,str);
+	int i;
+	for(i=0;i<15;i++){
+		rep[i]=((char)cssl_getchar(serial.port));
+		if(rep[i]==';'){break;}
+	}
+	rep[i+1]='\0';
+}
+
+bool tranceiver_set_freq(int freq)
+{
+	char str[2][16];
+	char rep[2][16];
+
+	sprintf(str[0],"FA%11.11d;",freq);
+	sprintf(str[1],"FB%11.11d;",freq);
+	
+	cssl_putstring(serial.port,str[0]);
+	cssl_putstring(serial.port,str[1]);
+	
+	cssl_putstring(serial.port,"FA;");
+	get_serial_rep(rep[0]);
+	cssl_putstring(serial.port,"FB;");
+	get_serial_rep(rep[1]);
+	
+	return (bool)((strcmp( rep[0], str[0] ) == 0) && (strcmp( rep[1], str[1] ) == 0));
 }
 
 void tranceiver_init()
@@ -1320,7 +1327,7 @@ void tranceiver_init()
 	cssl_putstring(serial.port,"FR0;"); //Set receive on VFO_A
 	cssl_putstring(serial.port,"FT0;"); //Set Transmit on VFO_A
 	cssl_putstring(serial.port,"Q10;"); //Set USB mode
-	tranceiver_set_freq(FT8.Tranceiver_VFOA_Freq); //Set frequency stored
+	if(!tranceiver_set_freq(FT8.Tranceiver_VFOA_Freq)){printf("Unable to communicate with tranceiver!");exit(-1);} //Set frequency stored
 }
 
 void tranceiver_rtx(bool ptt)
