@@ -1,0 +1,47 @@
+Callsign filter table initialised with 5 entry.
+Starting with this:
+-set Freq to 14074000
+-your callsing is F4HTB
+-your locator is JN38
+-TRX serial port is /dev/ttyACM0
+-Sound device is plughw:CARD=Transceiver,DEV=0
+-CQ filter methode 0
+Lock TX thread
+/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\2022-07-15 00:10:45  30 +0.88  219 ~  <...> UA6AUA KN94
+2022-07-15 00:10:45  28 +0.48  819 ~  <...> 4Z21MG 
+2022-07-15 00:10:45  26 +0.72  656 ~  VC9CATGIRL <...> 73
+2022-07-15 00:10:45  22 +0.64  731 ~  [1;35mCQ[0m
+2022-07-15 00:10:45  22 +0.72  603 ~  IW1RIH YH1AB R-13
+2022-07-15 00:10:45  20 +0.80 1478 ~  DL2AMD V31DL -05
+2022-07-15 00:10:45  17 +0.72 1412 ~  [1;34mCQ[0m
+2022-07-15 00:10:45  16 -0.08 2419 ~  JR3DXJ EX8ABD -21
+|*Selected for new QSO: [1;31mYH1AH at OI42 on 1412.500000 hz (seq QSO on 0) [0m
+UnLock TX thread
+Resp to [1;31m YH1AH [0m with seq [1;31m 0 [0m mess [1;31m YH1AH F4HTB JN38 [0m
+Packed data: f5 b2 0e 20 46 eb 2e 11 20 88 
+FSK tones: 3140652762210141005226212510550524443140652043056006433550345461124345303140652
+/2022-07-15 00:10:59 start send message
+tranceiver ptt on
+-\|/-\|/-\|/-\|/-\|/-\|tranceiver ptt off
+2022-07-15 00:11:11 stop send message
+UnLock RX thread
+Lock TX thread
+/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\2022-07-15 00:11:15  28 +0.88 1478 ~  HK2AQ V31DL -01
+2022-07-15 00:11:15  25 +0.48  819 ~  <...> 4Z21MG 
+2022-07-15 00:11:15  25 +0.96  219 ~  <...> UA6AUA KN94
+2022-07-15 00:11:15  23 +1.36 1412 ~  [1;34mCQ[0m
+2022-07-15 00:11:15  21 +0.72  731 ~  N2AXX <...> R-06
+2022-07-15 00:11:15  19 -0.16 2419 ~  JR3DXJ EX8ABD -21
+2022-07-15 00:11:15  19 +0.72  600 ~  IW1RIH YH1AB R-13
+|*Selected for new QSO: [1;31mYH1AH at OI42 on 1412.500000 hz (seq QSO on 0) [0m
+UnLock TX thread
+Resp to [1;31m YH1AH [0m with seq [1;31m 0 [0m mess [1;31m YH1AH F4HTB JN38 [0m
+Packed data: f5 b2 0e 20 46 eb 2e 11 20 88 
+FSK tones: 3140652762210141005226212510550524443140652043056006433550345461124345303140652
+/2022-07-15 00:11:29 start send message
+tranceiver ptt on
+-\|/-\|/-\|/-\|/-\|/-\|tranceiver ptt off
+2022-07-15 00:11:41 stop send message
+UnLock RX thread
+Lock TX thread
+/-\|/-\|/-\|/-\|/-\|/-\|/-\|

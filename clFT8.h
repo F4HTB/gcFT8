@@ -12,13 +12,13 @@
 typedef struct
 {
 	char Local_CALLSIGN[20];
-	char Local_LOCATOR[20];
+	char Local_LOCATOR[10];
 	float Local_latlon[2];
 	bool TX_enable;
 	
 	char QSO_dist_CALLSIGN[20];
-	char QSO_dist_LOCATOR[20];
-	char QSO_dist_MESSAGE[20];
+	char QSO_dist_LOCATOR[10];
+	char QSO_dist_MESSAGE[10];
 	int  QSO_dist_SNR;
 	float  QSO_dist_FREQUENCY;
 	
@@ -33,7 +33,13 @@ typedef struct
 	int Tranceiver_VFOA_Freq;
 	
 	char log_file_name[20];
-	char infos_to_log [200];
+	char infos_to_log [100];
+	char log_callsigntable_file_name[20];
+	char log_dist_CALLSIGN_for_filter[20];
+	char callsigntable_for_filter[65535][20];
+	int callsigntable_for_filter_index;
+	
+	int filter_on_cq;
 	
 	
 } FT8info;
@@ -103,3 +109,4 @@ typedef struct
 //Functions
 
 void tranceiver_rtx(bool ptt);
+int log_FT8_search_callsigntable(char * css);

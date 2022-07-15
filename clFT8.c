@@ -31,15 +31,15 @@
 
 
 FT8info FT8 = {
-	.Local_CALLSIGN={'F','4','J','J','J','\0'},
-	.Local_LOCATOR={'J','N','3','8','\0'},
-	.TX_enable=1,
+	.Local_CALLSIGN = {'F','4','J','J','J','\0'},
+	.Local_LOCATOR = {'J','N','3','8','\0'},
+	.TX_enable = 1,
 	
-	.QSO_dist_CALLSIGN="",
-	.QSO_dist_LOCATOR="",
-	.QSO_dist_MESSAGE="",
-	.QSO_dist_SNR=0,
-	.QSO_dist_FREQUENCY=0,
+	.QSO_dist_CALLSIGN = "",
+	.QSO_dist_LOCATOR = "",
+	.QSO_dist_MESSAGE = "",
+	.QSO_dist_SNR = 0,
+	.QSO_dist_FREQUENCY = 0,
 	
 	
 	.QSO_RESPONSES={'\0','\0','\0','\0','\0','\0'},
@@ -53,7 +53,12 @@ FT8info FT8 = {
 	.Tranceiver_VFOA_Freq = 14074000,
 	
 	.log_file_name = "QSO.log",
-	.infos_to_log[0] = '\0'
+	.infos_to_log[0] = '\0',
+	.log_callsigntable_file_name = "Call_Table.log",
+	.log_dist_CALLSIGN_for_filter = "",
+	.callsigntable_for_filter_index=0,
+	
+	.filter_on_cq = 0
 	
 	
 };
@@ -116,10 +121,13 @@ void waitforstart(){
 	usleep(WaitTime);
 }
 
+void printDateTime_log(){
+	time_t t = time(NULL);	struct tm tm = *gmtime(&t);	int sec = (int)((int)tm.tm_sec / 15)*15;
+	printf("%d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, sec);
+}
+
 void printDateTime(){
-	time_t t = time(NULL);
-	struct tm tm = *gmtime(&t);
-	int sec = (int)((int)tm.tm_sec / 15)*15;
+	time_t t = time(NULL);	struct tm tm = *gmtime(&t);	int sec = (int)((int)tm.tm_sec);
 	printf("%d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, sec);
 }
 
@@ -168,17 +176,17 @@ void unpackFT8mess(char * message_text, char * unpackeds0, char * unpackeds1, ch
 	char * NullToken = strtok(message_text, " ");
 	if(NullToken != 0){
 		memcpy(unpackeds0, NullToken, sizeof(NullToken));
-	}
+	}else{strcpy(unpackeds0, "");}
 	
 	NullToken = strtok(0, " ");	
 	if(NullToken != 0){
 		memcpy(unpackeds1, NullToken, sizeof(NullToken));
-	}
+	}else{strcpy(unpackeds1, "");}
 	
 	NullToken = strtok(0, " ");		
 	if(NullToken != 0){
 		memcpy(unpackeds2, NullToken, sizeof(NullToken));
-	}
+	}else{strcpy(unpackeds2, "");}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -848,7 +856,7 @@ void RX_FT8()
 					
 					int snr = 0; // TODO: compute SNR
 					
-					printDateTime();
+					printDateTime_log();
 					
 					if ((strncmp(message.text, FT8.Local_CALLSIGN, strlen(FT8.Local_CALLSIGN)) == 0) && (countanalyse>-1)) {
 						
@@ -856,20 +864,30 @@ void RX_FT8()
 						printf(" %3d %+4.2f %4.0f ~  \e[1;31m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
 						unpackFT8mess(message.text,AnalyseArray[0][0],AnalyseArray[0][1],AnalyseArray[0][2]);
 						
+						pthread_mutex_lock(&FT8.TRX_status_lock);
+								
 						strcpy(FT8.QSO_dist_CALLSIGN, AnalyseArray[0][1]);
-						strcpy(FT8.QSO_dist_LOCATOR, AnalyseArray[0][2]);
-						strcpy(FT8.QSO_dist_MESSAGE, AnalyseArray[0][3]);
+						strcpy(FT8.QSO_dist_MESSAGE, AnalyseArray[0][2]);
 						FT8.QSO_dist_FREQUENCY=freq_hz;
-						
+						FT8.QSO_Index_to_rep = -1;
+				
+						pthread_mutex_unlock(&FT8.TRX_status_lock);
+				
 						unlock_TX_thread();
 						
 					}
 					else if ((strncmp(message.text,"CQ",2) == 0) && (countanalyse>-1)) {
-						
-						printf(" %3d %+4.2f %4.0f ~  \e[1;34m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
 						unpackFT8mess(message.text,AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
 						AnalyseArrayFreqInfo[countanalyse]=freq_hz;
-						countanalyse++;
+						if(log_FT8_search_callsigntable(AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0){
+							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
+							printf(" %3d %+4.2f %4.0f ~  \e[1;35m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
+						}
+						else{
+							countanalyse++;
+							printf(" %3d %+4.2f %4.0f ~  \e[1;34m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
+							}
+							
 					
 					}else{
 						printf(" %3d %+4.2f %4.0f ~  %s\n", cand->score, time_sec, freq_hz, message.text);
@@ -877,30 +895,73 @@ void RX_FT8()
 				}
 			}
 			
-			int index_from_ope = 0;
-			float dist = 0;
+			
 			if(countanalyse>0){
-				for(int i = 0; i<countanalyse;i++){
-					float latlonlocal[2];
-					latLonForGrid(AnalyseArray[i][2],latlonlocal);
-					#if DEBUG
-					printf("%s lat:%f lon:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1]);
-					#endif
-					float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
-					if(dist < new_dist){index_from_ope=i;dist=new_dist;}
+				int index_from_ope = 0;
+				float dist = 0;
+				
+				switch (FT8.filter_on_cq)
+				{
+				
+				case '0':
+					index_from_ope = rand() % countanalyse;
+					break;
+					
+				case '1':
+					index_from_ope = 0;
+					break;				
+				
+				case '2':
+					for(int i = 0; i<countanalyse;i++){
+						if(strlen(AnalyseArray[i][2]) == 4){
+							float latlonlocal[2];
+							latLonForGrid(AnalyseArray[i][2],latlonlocal);
+							#if DEBUG
+							printf("%s lat:%f lon:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1]);
+							#endif
+							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
+							if(dist < new_dist){index_from_ope=i;dist=new_dist;}
+						}
+					}				
+					break;
+					
+				case '3':
+					for(int i = 0; i<countanalyse;i++){
+						if(strlen(AnalyseArray[i][2]) == 4){
+							float latlonlocal[2];
+							latLonForGrid(AnalyseArray[i][2],latlonlocal);
+							#if DEBUG
+							printf("%s lat:%f lon:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1]);
+							#endif
+							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
+							if(dist > new_dist){index_from_ope=i;dist=new_dist;}
+						}
+					}				
+					break;
+				
+				default:
+					index_from_ope = rand() % countanalyse;
+					break;
+
 				}
+				
+				pthread_mutex_lock(&FT8.TRX_status_lock);
+				
 				strcpy(FT8.QSO_dist_CALLSIGN, AnalyseArray[index_from_ope][1]);
 				strcpy(FT8.QSO_dist_LOCATOR, AnalyseArray[index_from_ope][2]);
 				FT8.QSO_Index_to_rep=0;
 				FT8.QSO_dist_FREQUENCY=AnalyseArrayFreqInfo[index_from_ope];
-				printf("*Selected for new QSO: \e[1;31m%s at %f km (%s) on %f hz (seq QSO on %d) \e[0m\n", FT8.QSO_dist_CALLSIGN,dist,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_FREQUENCY,FT8.QSO_Index_to_rep);
+				
+				pthread_mutex_unlock(&FT8.TRX_status_lock);
+				
+				printf("*Selected for new QSO: \e[1;31m%s at %s on %f hz (seq QSO on %d) \e[0m\n", FT8.QSO_dist_CALLSIGN,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_FREQUENCY,FT8.QSO_Index_to_rep);
 				
 				unlock_TX_thread();
 				
 			}
 			
 			
-			if(!num_decoded){printDateTime();printf(" N/A\n");}
+			if(!num_decoded){printDateTime_log();printf(" N/A\n");}
 			
 			#if DEBUG
 			printf( "Decoded %d messages\n", num_decoded);
@@ -910,7 +971,7 @@ void RX_FT8()
 		
 		}
 		else{
-			printf( "Lock RX thread\n");
+			// printf( "Lock RX thread\n");
 			pthread_mutex_lock(&FT8.TRX_status_lock);
 			pthread_cond_wait(&FT8.RX_status_cond, &FT8.TRX_status_lock);
 			pthread_mutex_unlock(&FT8.TRX_status_lock);		
@@ -920,71 +981,20 @@ void RX_FT8()
 
 }
 
-
-
-char* join_strings(char* strings[], char* seperator, int count) {
-    char* str = NULL;             /* Pointer to the joined strings  */
-    size_t total_length = 0;      /* Total length of joined strings */
-    int i = 0;                    /* Loop counter                   */
-
-    /* Find total length of joined strings */
-    for (i = 0; i < count; i++) total_length += strlen(strings[i]);
-    total_length++;     /* For joined string terminator */
-    total_length += strlen(seperator) * (count - 1); // for seperators
-
-    str = (char*) malloc(total_length);  /* Allocate memory for joined strings */
-    str[0] = '\0';                      /* Empty string we can append to      */
-
-    /* Append all the strings */
-    for (i = 0; i < count; i++) {
-        strcat(str, strings[i]);
-        if (i < (count - 1)) strcat(str, seperator);
-    }
-
-    return str;
-}
-
 void gen_FT8_responses()
 {
-	// strcat(FT8.QSO[0],FT8.Local_CALLSIGN); strcat(FT8.QSO[0],distop); strcat(FT8.QSO[0],FT8.Local_LOCATOR);
-
-	char snr[3],snrr[4]="R";
-	sprintf(snr, "%d", FT8.QSO_dist_SNR); 
-	strcat(snrr,snr);
-
-	char* strings[3];
+	sprintf(FT8.QSO_RESPONSES[0], "%s %s %s", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.Local_LOCATOR); 
+	sprintf(FT8.QSO_RESPONSES[1], "%s %s %+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	sprintf(FT8.QSO_RESPONSES[2], "%s %s R%+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	sprintf(FT8.QSO_RESPONSES[3], "%s %s RRR", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
+	sprintf(FT8.QSO_RESPONSES[4], "%s %s 73", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 	
-	strings[0]=FT8.QSO_dist_CALLSIGN;
-	strings[1]=FT8.Local_CALLSIGN;
-	
-	strings[2]=FT8.Local_LOCATOR;
-	strcpy(FT8.QSO_RESPONSES[0], join_strings(strings,(char*)" ",3));
-
-	
-	strings[2]=snr;
-	strcpy(FT8.QSO_RESPONSES[1], join_strings(strings,(char*)" ",3));
-
-	
-	strings[2]=snrr;
-	strcpy(FT8.QSO_RESPONSES[2], join_strings(strings,(char*)" ",3));
-
-	
-	strings[2]=(char*)"RRR";
-	strcpy(FT8.QSO_RESPONSES[3], join_strings(strings,(char*)" ",3));
-
-	
-	strings[2]=(char*)"73";
-	strcpy(FT8.QSO_RESPONSES[4], join_strings(strings,(char*)" ",3));
-
-	
-	printf("%s\n",FT8.QSO_RESPONSES[0]);
-	printf("%s\n",FT8.QSO_RESPONSES[1]);
-	printf("%s\n",FT8.QSO_RESPONSES[2]);
-	printf("%s\n",FT8.QSO_RESPONSES[3]);
-	printf("%s\n",FT8.QSO_RESPONSES[4]);
-	printf("%s\n",FT8.QSO_RESPONSES[5]);
-
-	
+	// printf("%s\n",FT8.QSO_RESPONSES[0]);
+	// printf("%s\n",FT8.QSO_RESPONSES[1]);
+	// printf("%s\n",FT8.QSO_RESPONSES[2]);
+	// printf("%s\n",FT8.QSO_RESPONSES[3]);
+	// printf("%s\n",FT8.QSO_RESPONSES[4]);
+	// printf("%s\n",FT8.QSO_RESPONSES[5]);
 }
 
 void Reinit_FT8_QSO()
@@ -1001,24 +1011,34 @@ void Reinit_FT8_QSO()
 
 int get_seq_qso_to_rep(char * mess)
 {
-	char *ptr;
-	ptr = strstr(mess, "RRR");
 	int rep = -1;
 	
-	if (ptr != NULL) /* Substring found */
-	{
-		rep = 4;
-	}
-	
-	ptr = strstr(mess, "-");
-	if (ptr != NULL && isdigit(mess[strlen(mess)-1])) /* Substring found */
+	if ((mess[0] == '-') && (isdigit(mess[strlen(mess)-1]))) 
 	{
 		rep = 2;
 	}
 	
-	ptr = strstr(mess, "73");
+	if ((mess[0] == '+') && (isdigit(mess[strlen(mess)-1])))  
+	{
+		rep = 2;
+	}
+
+	if ((mess[0] == 'R') && (isdigit(mess[strlen(mess)-1]))) 
+	{
+		rep = 3;
+	}
+
+	if ((mess[0] == 'R') && (mess[1] == 'R') && (mess[2] == 'R')) 
+	{
+		rep = 4;
+	}
 	
-	if (ptr != NULL) /* Substring found */
+	if ((mess[0] == 'R') && (mess[1] == 'R') && (mess[2] == '7') && (mess[3] == '3')) 
+	{
+		rep = 10;
+	}
+
+	if ((mess[0] == '7') && (mess[1] == '3')) 
 	{
 		rep = 10;
 	}
@@ -1027,8 +1047,14 @@ int get_seq_qso_to_rep(char * mess)
 	
 }
 
-void log_FT8_QSO(){
-	printf("we can log the qso %s", FT8.infos_to_log);
+void log_FT8_QSO()
+{
+	
+	char resultime[40];
+	time_t t = time(NULL);	struct tm tm = *gmtime(&t);	int sec = (int)((int)tm.tm_sec);
+	sprintf(resultime,"%d-%02d-%02d %02d:%02d:%02d ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, sec);
+	
+	printf("\e[1;32mWe can log the qso %s	%s \e[0m\n", resultime, FT8.infos_to_log);
 	FILE *fptr;
 	fptr = fopen(FT8.log_file_name,"ab");
 	if(fptr == NULL)
@@ -1036,10 +1062,58 @@ void log_FT8_QSO(){
 		printf("Error with QSO log file!");   
 		exit(1);             
 	}
+
+	fprintf(fptr,resultime);
 	fprintf(fptr,FT8.infos_to_log);
 	FT8.infos_to_log[0] = '\0';
 	fclose(fptr);
 	
+}
+
+void log_FT8_log_to_callsigntable()
+{
+	FILE *fptr;
+	fptr = fopen(FT8.log_callsigntable_file_name,"ab");
+	if(fptr == NULL)
+	{
+		printf("Error with QSO log file!");   
+		exit(1);             
+	}
+
+	fprintf(fptr,FT8.log_dist_CALLSIGN_for_filter);
+	fclose(fptr);
+	FT8.callsigntable_for_filter_index++;
+	sprintf(FT8.callsigntable_for_filter[FT8.callsigntable_for_filter_index], "%s",FT8.log_dist_CALLSIGN_for_filter);
+	FT8.log_dist_CALLSIGN_for_filter[0] = '\0';
+	FT8.callsigntable_for_filter[FT8.callsigntable_for_filter_index+1][0] = '\0';
+	
+}
+
+void log_FT8_open_callsigntable()
+{
+	FILE *fptr;
+	fptr = fopen(FT8.log_callsigntable_file_name,"a+");
+	int i = 0;
+	while(fgets(FT8.callsigntable_for_filter[i], 20, fptr)) 
+	{
+        FT8.callsigntable_for_filter[i][strlen(FT8.callsigntable_for_filter[i]) - 1] = '\0';
+        i++;
+    }
+	fclose(fptr);
+	FT8.callsigntable_for_filter[i+1][0] = '\0';
+	FT8.callsigntable_for_filter_index=i;
+	printf("Callsign filter table initialised with %d entry.\n",i);
+}
+
+int log_FT8_search_callsigntable(char * css)
+{
+	int ret = 0;
+	for (int i = 0; i < FT8.callsigntable_for_filter_index+1; i++) {
+		if (strstr(FT8.callsigntable_for_filter[i], css) != NULL) {
+			ret=1;
+		}
+	}
+	return ret;
 }
 
 void TX_FT8()
@@ -1050,22 +1124,24 @@ void TX_FT8()
 		pthread_mutex_unlock(&FT8.TRX_status_lock);
 		if(stat == _TX_){
 			
-			if((FT8.QSO_RESPONSES[0][0]=='\0') || (FT8.QSO_Index_to_rep == 0)){gen_FT8_responses();}
+			gen_FT8_responses();
 			
 			if(FT8.QSO_Index_to_rep == -1){FT8.QSO_Index_to_rep=get_seq_qso_to_rep(FT8.QSO_dist_MESSAGE);}
 			
-			if(FT8.QSO_Index_to_rep==10)
+			if(FT8.QSO_Index_to_rep == 10)
 			{
 				unlock_RX_thread();
-				sprintf(FT8.infos_to_log, "%s	%s	%d	%f",FT8.QSO_dist_CALLSIGN,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_SNR,FT8.QSO_dist_FREQUENCY + (float)FT8.Tranceiver_VFOA_Freq);
+				sprintf(FT8.infos_to_log, "%s	%s	%d	%f\n",FT8.QSO_dist_CALLSIGN,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_SNR,FT8.QSO_dist_FREQUENCY + (float)FT8.Tranceiver_VFOA_Freq);
+				sprintf(FT8.log_dist_CALLSIGN_for_filter,"%s",FT8.QSO_dist_CALLSIGN);
 				//Empty QSO variable
 				pthread_mutex_lock(&FT8.TRX_status_lock);
 				Reinit_FT8_QSO();
 				pthread_mutex_unlock(&FT8.TRX_status_lock);
 				
 			}
-			else if(FT8.QSO_Index_to_rep!=-1){
-			
+			else if(FT8.QSO_Index_to_rep>-1){
+				
+				printf("Resp to \e[1;31m %s \e[0m with seq \e[1;31m %d \e[0m mess \e[1;31m %s \e[0m\n",FT8.QSO_dist_CALLSIGN, FT8.QSO_Index_to_rep, FT8.QSO_RESPONSES[FT8.QSO_Index_to_rep]);
 			
 				uint8_t packed[FTX_LDPC_K_BYTES];
 				int rc = pack77(FT8.QSO_RESPONSES[FT8.QSO_Index_to_rep], packed);
@@ -1123,21 +1199,24 @@ void TX_FT8()
 					x = 1.0;
 					else if (x < -1.0)
 					x = -1.0;
+					int16_t xx = (int16_t)(0.5 + (x * 32767.0));
 					raw_data[i] = (int)(0.5 + (x * 32767.0));
 				}
 
 				register snd_pcm_uframes_t	count, frames;
 				
 				waitforstart();
-				printDateTime();
-				// tranceiver_rtx(_TX_);
-				printf("send message %d/%d",frames,num_total_samples);
+
+				printDateTime();printf(" start send message\n",num_total_samples);
 				
-				
+				tranceiver_rtx(_TX_);
+								
+				int frame_lenght = sound.playback_buffer_frames;
+				int frame_lenght_limit = num_total_samples - frame_lenght;
 				count = 0;
 				do
 				{
-					frames = snd_pcm_writei(sound.playback_handle, raw_data + count, num_total_samples - count);
+					frames = snd_pcm_writei(sound.playback_handle, raw_data + count, frame_lenght);
 
 					// If an error, try to recover from it
 					if (frames < 0){frames = snd_pcm_recover(sound.playback_handle, frames, 0);}
@@ -1146,22 +1225,28 @@ void TX_FT8()
 						printf("Error playing wave: %s\n", snd_strerror(frames));
 						break;
 					}
-
+					
 					// Update our pointer
-					count += frames;
+					if (frames >= 0)
+					{
+						count += frames;
+						if(count > frame_lenght_limit)
+						{
+							frame_lenght = num_total_samples - count;
+						}
+						else{}
+					}
+					
+					
 
 				} while (count < num_total_samples);
 				
 				if (count == num_total_samples){snd_pcm_drain(sound.playback_handle);}
 				
-				// for(count = 0; count < num_total_samples; count += frames)
-				// {
-					// frames = snd_pcm_writei(sound.playback_handle, raw_data+count, num_total_samples - count);
-				// }
-				// snd_pcm_drain(sound.playback_handle);
-				printDateTime();
-				printf("stop send message");
-				// tranceiver_rtx(_RX_);
+				tranceiver_rtx(_RX_);
+
+				printDateTime();printf(" stop send message\n");
+
 				free(raw_data);
 			
 			}
@@ -1248,7 +1333,8 @@ int main (int argc, char *argv[])
 		switch (c)
 		{
 			case 'h':
-				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0\n");
+				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1\n");
+				printf ("-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance\n");
 				exit(0);
 				break;
 			case 'd':
@@ -1268,6 +1354,10 @@ int main (int argc, char *argv[])
 				FT8.Tranceiver_VFOA_Freq = atoi(optarg);
 				break;
 				return 1;
+			case 'x':
+				FT8.filter_on_cq = atoi(optarg);
+				break;
+				return 1;
 			case 'S':
 				strcpy( serial.pathname, optarg );
 				break;
@@ -1277,10 +1367,10 @@ int main (int argc, char *argv[])
 		}
 	
 	latLonForGrid(FT8.Local_LOCATOR,FT8.Local_latlon);
+	sprintf(FT8.QSO_RESPONSES[5], "CQ %s %s", FT8.Local_CALLSIGN, FT8.Local_LOCATOR);
 	
-	char* strings[3];strings[0]=(char*)"CQ";strings[1]=FT8.Local_CALLSIGN;strings[2]=FT8.Local_LOCATOR;
-	strcpy(FT8.QSO_RESPONSES[5], join_strings(strings,(char*)" ",3));	
-	
+	log_FT8_open_callsigntable();
+
 	capture_audioInit();
 	playback_audioInit();
 	
@@ -1289,8 +1379,9 @@ int main (int argc, char *argv[])
 		"-your callsing is %s\n"
 		"-your locator is %s\n"
 		"-TRX serial port is %s\n"
-		"-Sound device is %s\n",
-		FT8.Tranceiver_VFOA_Freq,FT8.Local_CALLSIGN,FT8.Local_LOCATOR,serial.pathname,sound.capture_sound_device);
+		"-Sound device is %s\n"
+		"-CQ filter methode %d\n",
+		FT8.Tranceiver_VFOA_Freq,FT8.Local_CALLSIGN,FT8.Local_LOCATOR,serial.pathname,sound.capture_sound_device,FT8.filter_on_cq);
 		
 	int serres = serial_init();
 	if(serres==-1){printf("Could not open serial port.");}
@@ -1306,7 +1397,7 @@ int main (int argc, char *argv[])
 	{
 		usleep(500000);
 		advance_cursor();
-		if(FT8.infos_to_log[0] != '\0'){log_FT8_QSO();}
+		if(FT8.infos_to_log[0] != '\0'){log_FT8_QSO();log_FT8_log_to_callsigntable();}
 		#if DEBUG
 		printf("wait\n");
 		#endif
