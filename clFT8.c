@@ -57,6 +57,7 @@ FT8info FT8 = {
 	.log_callsigntable_file_name = "Call_Table.log",
 	.log_dist_CALLSIGN_for_filter = "",
 	.callsigntable_for_filter_index=0,
+	.beep_on_log=0,
 	
 	.filter_on_cq = 0
 	
@@ -877,7 +878,10 @@ void RX_FT8()
 						
 					}
 					else if ((strncmp(message.text,"CQ",2) == 0) && (countanalyse>-1)) {
-						unpackFT8mess(message.text,AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
+						char trashmess[25];
+						strcpy(trashmess, message.text);
+						unpackFT8mess(trashmess,AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
+						
 						AnalyseArrayFreqInfo[countanalyse]=freq_hz;
 						if(log_FT8_search_callsigntable(AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0){
 							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
@@ -1055,6 +1059,7 @@ void log_FT8_QSO()
 	sprintf(resultime,"%d-%02d-%02d %02d:%02d:%02d ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, sec);
 	
 	printf("\e[1;32mWe can log the qso %s	%s \e[0m\n", resultime, FT8.infos_to_log);
+	if(FT8.beep_on_log){putchar('\07');putchar('\a');}
 	FILE *fptr;
 	fptr = fopen(FT8.log_file_name,"ab");
 	if(fptr == NULL)
@@ -1329,14 +1334,18 @@ void tranceiver_rtx(bool ptt)
 int main (int argc, char *argv[])
 {
 	int c;
-	while ((c = getopt (argc, argv, "hd:C:L:F:S:")) != -1)
+	while ((c = getopt (argc, argv, "hbd:C:L:F:x:S:")) != -1)
 		switch (c)
 		{
 			case 'h':
-				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1\n");
-				printf ("-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance\n");
+				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1 -b\n");
+				printf ("-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance\n-b for console beep on log\n");
 				exit(0);
 				break;
+			case 'b':
+				FT8.beep_on_log = 1;
+				break;
+				return 1;
 			case 'd':
 				sound.capture_sound_device = optarg;
 				sound.playback_sound_device = optarg;
@@ -1380,8 +1389,11 @@ int main (int argc, char *argv[])
 		"-your locator is %s\n"
 		"-TRX serial port is %s\n"
 		"-Sound device is %s\n"
-		"-CQ filter methode %d\n",
-		FT8.Tranceiver_VFOA_Freq,FT8.Local_CALLSIGN,FT8.Local_LOCATOR,serial.pathname,sound.capture_sound_device,FT8.filter_on_cq);
+		"-CQ filter methode %d\n"
+		"-Beep on log %d\n",
+		FT8.Tranceiver_VFOA_Freq,FT8.Local_CALLSIGN,FT8.Local_LOCATOR,serial.pathname,sound.capture_sound_device,FT8.filter_on_cq,FT8.beep_on_log);
+		
+	if(FT8.beep_on_log){putchar('\07');putchar('\a');}
 		
 	int serres = serial_init();
 	if(serres==-1){printf("Could not open serial port.");}
