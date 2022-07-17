@@ -36,8 +36,6 @@ typedef struct
 	char infos_to_log [100];
 	char log_callsigntable_file_name[20];
 	char log_dist_CALLSIGN_for_filter[20];
-	char callsigntable_for_filter[65535][20];
-	int callsigntable_for_filter_index;
 	bool beep_on_log;
 	
 	int filter_on_cq;

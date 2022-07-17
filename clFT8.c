@@ -58,7 +58,6 @@ FT8info FT8 = {
 	.infos_to_log[0] = '\0',
 	.log_callsigntable_file_name = "Call_Table.log",
 	.log_dist_CALLSIGN_for_filter = "",
-	.callsigntable_for_filter_index=0,
 	.beep_on_log=0,
 	
 	.filter_on_cq = 0
