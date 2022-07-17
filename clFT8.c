@@ -176,7 +176,20 @@ float latLonDist(float * latlonA, float * latlonB){
 	return acos(sin(latlonA[0] * M_PI / 180.0f) * sin(latlonB[0] * M_PI / 180.0f) + cos(latlonA[0] * M_PI / 180.0f) * cos(latlonB[0] * M_PI / 180.0f) * cos((latlonA[1] * M_PI / 180.0f) - (latlonB[1] * M_PI / 180.0f)))*6371.0;
 }
 
+int count_occur_str(char * s, char * c){
+	int count=0;
+	for(int i=0;s[i];i++)  
+    {
+    	if(s[i]==*c)
+    	{
+          count++;
+		}
+ 	}
+	return count;
+}
+
 void unpackFT8mess(char * message_text, char * unpackeds0, char * unpackeds1, char * unpackeds2){
+	
 	char * NullToken = strtok(message_text, " ");
 	if(NullToken != 0){
 		memcpy(unpackeds0, NullToken, sizeof(NullToken));
@@ -892,9 +905,7 @@ void RX_FT8()
 						
 						AnalyseArrayFreqInfo[countanalyse]=freq_hz;
 						
-						if(ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0){
-						
-						// if(log_FT8_search_callsigntable(AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0){
+						if(ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message.text, " ") > 2){
 							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
 							printf(" %3d %+4.2f %4.0f ~  \e[1;35m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
 						}
@@ -1106,10 +1117,6 @@ void log_FT8_log_to_callsigntable_ht()
 void log_FT8_open_callsigntable_ht()
 {
 	ht_callsigntable_for_filter = ht_create_table();
-	
-	ht_insert(ht_callsigntable_for_filter, " "); //filter empty
-	ht_insert(ht_callsigntable_for_filter, "NA");//filter NA
-	ht_insert(ht_callsigntable_for_filter, "DX");//filter DX
 	
 	FILE *fptr;
 	fptr = fopen(FT8.log_callsigntable_file_name,"a+");
@@ -1368,7 +1375,7 @@ int main (int argc, char *argv[])
 			case 'h':
 				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1 -b\n"
 				"-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance\n-b for console beep on log\n"
-				"Red color: info, Blue: CQ finded,Magenta: filter by info missing or call already made or NA/DX/Empty callsign\n");
+				"Red color: info, Blue: CQ finded,Magenta: filter by info missing or non standard message or call already made or Empty callsign\n");
 				exit(0);
 				break;
 			case 'b':
