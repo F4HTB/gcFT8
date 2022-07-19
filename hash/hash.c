@@ -12,7 +12,7 @@
 unsigned long hash_function(char* str) {
     unsigned long long i = 0;
     for (int j=0; str[j]; j++)
-        i += tolower(str[j])*pow(j,10);
+        i += (toupper(str[j])-50)*pow(j,10);
     return i % hash_CAPACITY;
 }
  

@@ -1,5 +1,3 @@
-# CC = g++ 
-
 CFLAGS = -O3 -ggdb3 -fsanitize=address -march=native -D _GNU_SOURCE
 CPPFLAGS = -I. 
 LDFLAGS = -lm -fsanitize=address 

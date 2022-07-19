@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include<ctype.h>
+#include <ctype.h>
 #include <stdbool.h>
 
 #include <alsa/asoundlib.h>
@@ -750,18 +750,9 @@ void RX_FT8()
 
 				rc = snd_pcm_readi (sound.capture_handle, raw_data, mon.block_size);
 				
-				if (rc == -EPIPE)
+				if (rc < 0)
 				{
-					/* EPIPE means overrun */
 					snd_pcm_recover(sound.capture_handle, rc, 0);
-				}
-				else if (rc == -EAGAIN)
-				{
-					/* Not ready yet. Come back again later. */
-				}
-				else if (rc < 0)
-				{
-					fprintf(stderr, "error from read: %s\n", snd_strerror(rc));
 				}
 				else
 				{
@@ -1413,10 +1404,10 @@ int main (int argc, char *argv[])
 	latLonForGrid(FT8.Local_LOCATOR,FT8.Local_latlon);
 	sprintf(FT8.QSO_RESPONSES[5], "CQ %s %s", FT8.Local_CALLSIGN, FT8.Local_LOCATOR);
 	
-	log_FT8_open_callsigntable_ht();
-
 	capture_audioInit();
 	playback_audioInit();
+	
+	log_FT8_open_callsigntable_ht();
 	
 	printf("Starting with this:\n"
 		"-set Freq to %d\n"
