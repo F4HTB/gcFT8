@@ -34,8 +34,8 @@
 
 
 FT8info FT8 = {
-	.Local_CALLSIGN = {'F','4','J','J','J','\0'},
-	.Local_LOCATOR = {'J','N','3','8','\0'},
+	.Local_CALLSIGN = {'F','4','J','J','J',0},
+	.Local_LOCATOR = {'J','N','3','8',0},
 	.TX_enable = 1,
 	
 	.QSO_dist_CALLSIGN = "",
@@ -44,7 +44,7 @@ FT8info FT8 = {
 	.QSO_dist_SNR = 0,
 	.QSO_dist_FREQUENCY = 0,
 	
-	.QSO_RESPONSES={'\0','\0','\0','\0','\0','\0'},
+	.QSO_RESPONSES={0,0,0,0,0,0},
 	.QSO_Index_to_rep=-1,
 	
 	.TRX_status = _RX_,
@@ -55,7 +55,7 @@ FT8info FT8 = {
 	.Tranceiver_VFOA_Freq = 14074000,
 	
 	.log_file_name = "QSO.log",
-	.infos_to_log[0] = '\0',
+	.infos_to_log[0] = 0,
 	.log_callsigntable_file_name = "Call_Table.log",
 	.log_dist_CALLSIGN_for_filter = "",
 	.beep_on_log=0,
@@ -742,8 +742,9 @@ void RX_FT8()
 			char *raw_data = (char *)malloc(mon.block_size*2);
 		
 			waitforstart();
+			
 			snd_pcm_reset(sound.capture_handle);
-
+			
 			for (int frame_pos = 0; frame_pos + mon.block_size <= num_samples; frame_pos += mon.block_size)
 			{
 				// Process the waveform data frame by frame - you could have a live loop here with data from an audio device
@@ -752,7 +753,7 @@ void RX_FT8()
 				
 				if (rc < 0)
 				{
-					snd_pcm_recover(sound.capture_handle, rc, 0);
+					snd_pcm_recover(sound.capture_handle, rc, 1);
 				}
 				else
 				{
@@ -1004,13 +1005,6 @@ void gen_FT8_responses()
 	sprintf(FT8.QSO_RESPONSES[2], "%s %s R%+1.2d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
 	sprintf(FT8.QSO_RESPONSES[3], "%s %s RRR", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 	sprintf(FT8.QSO_RESPONSES[4], "%s %s 73", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
-	
-	// printf("%s\n",FT8.QSO_RESPONSES[0]);
-	// printf("%s\n",FT8.QSO_RESPONSES[1]);
-	// printf("%s\n",FT8.QSO_RESPONSES[2]);
-	// printf("%s\n",FT8.QSO_RESPONSES[3]);
-	// printf("%s\n",FT8.QSO_RESPONSES[4]);
-	// printf("%s\n",FT8.QSO_RESPONSES[5]);
 }
 
 void Reinit_FT8_QSO()
@@ -1019,9 +1013,11 @@ void Reinit_FT8_QSO()
 	for(int i = 0; i<5;i++){
 		strcpy(FT8.QSO_RESPONSES[i],"");
 	}
-	strcpy(FT8.QSO_dist_CALLSIGN,"");
-	strcpy(FT8.QSO_dist_LOCATOR,"");
-	strcpy(FT8.QSO_dist_MESSAGE,"");
+
+	FT8.QSO_dist_CALLSIGN[0]=0;
+	FT8.QSO_dist_LOCATOR[0]=0;
+	FT8.QSO_dist_MESSAGE[0]=0;
+	
 	FT8.QSO_dist_SNR=0;
 }
 
@@ -1082,7 +1078,7 @@ void log_FT8_QSO()
 
 	fprintf(fptr,resultime);
 	fprintf(fptr,FT8.infos_to_log);
-	FT8.infos_to_log[0] = '\0';
+	FT8.infos_to_log[0] = 0;
 	fclose(fptr);
 	
 }
@@ -1101,7 +1097,7 @@ void log_FT8_log_to_callsigntable_ht()
 	fprintf(fptr,"\n");
 	fclose(fptr);
 	ht_insert(ht_callsigntable_for_filter, FT8.log_dist_CALLSIGN_for_filter);
-	FT8.log_dist_CALLSIGN_for_filter[0] = '\0';
+	FT8.log_dist_CALLSIGN_for_filter[0] = 0;
 }
 
 void log_FT8_open_callsigntable_ht()
@@ -1257,12 +1253,14 @@ void TX_FT8()
 			
 			if(flaglog)
 			{
-				sprintf(FT8.infos_to_log, "%s	%s	%d	%f\n",FT8.QSO_dist_CALLSIGN,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_SNR,FT8.QSO_dist_FREQUENCY + (float)FT8.Tranceiver_VFOA_Freq);
-				sprintf(FT8.log_dist_CALLSIGN_for_filter,"%s",FT8.QSO_dist_CALLSIGN);
-				//Empty QSO variable
-				pthread_mutex_lock(&FT8.TRX_status_lock);
-				Reinit_FT8_QSO();
-				pthread_mutex_unlock(&FT8.TRX_status_lock);
+				if(FT8.QSO_dist_CALLSIGN[0]!=0 && FT8.QSO_dist_LOCATOR[0]!=0 && FT8.QSO_dist_MESSAGE[0]!=0){
+					sprintf(FT8.infos_to_log, "%s	%s	%d	%f\n",FT8.QSO_dist_CALLSIGN,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_SNR,FT8.QSO_dist_FREQUENCY + (float)FT8.Tranceiver_VFOA_Freq);
+					sprintf(FT8.log_dist_CALLSIGN_for_filter,"%s",FT8.QSO_dist_CALLSIGN);
+					//Empty QSO variable
+					pthread_mutex_lock(&FT8.TRX_status_lock);
+					Reinit_FT8_QSO();
+					pthread_mutex_unlock(&FT8.TRX_status_lock);
+				}
 			}
 			
 		}
@@ -1308,7 +1306,7 @@ void get_serial_rep(char rep[16])
 		rep[i]=((char)cssl_getchar(serial.port));
 		if(rep[i]==';'){break;}
 	}
-	rep[i+1]='\0';
+	rep[i+1]=0;
 }
 
 bool tranceiver_set_freq(int freq)
@@ -1435,7 +1433,7 @@ int main (int argc, char *argv[])
 	{
 		usleep(500000);
 		advance_cursor();
-		if(FT8.infos_to_log[0] != '\0'){log_FT8_QSO();log_FT8_log_to_callsigntable_ht();}
+		if(FT8.infos_to_log[0] != 0){log_FT8_QSO();log_FT8_log_to_callsigntable_ht();}
 		#if DEBUG
 		printf("wait\n");
 		#endif
