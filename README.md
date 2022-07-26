@@ -14,6 +14,7 @@ Installation:
 	make
 
 Example of use:
+
 	clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1 -b
 
 Command line option:
