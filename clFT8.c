@@ -873,7 +873,7 @@ void RX_FT8()
 					if ((strncmp(message.text, FT8.Local_CALLSIGN, strlen(FT8.Local_CALLSIGN)) == 0) && (countanalyse>-1)) {
 						
 						countanalyse=-1;
-						printf(" %3d %+4.2f %4.0f ~  \e[1;31m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
+						printf(" %d %3d %+4.2f %4.0f ~  \e[1;31m%s\e[0m\n", cand->snr, cand->score, time_sec, freq_hz, message.text);
 						unpackFT8mess(message.text,AnalyseArray[0][0],AnalyseArray[0][1],AnalyseArray[0][2]);
 						
 						pthread_mutex_lock(&FT8.TRX_status_lock);
@@ -881,7 +881,7 @@ void RX_FT8()
 						strcpy(FT8.QSO_dist_CALLSIGN, AnalyseArray[0][1]);
 						strcpy(FT8.QSO_dist_MESSAGE, AnalyseArray[0][2]);
 						FT8.QSO_dist_FREQUENCY=freq_hz;
-						FT8.QSO_dist_SNR = (cand->score -30)/2;
+						FT8.QSO_dist_SNR = cand->snr;
 						FT8.QSO_Index_to_rep = -1;
 				
 						pthread_mutex_unlock(&FT8.TRX_status_lock);
@@ -898,16 +898,16 @@ void RX_FT8()
 						
 						if(ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message.text, " ") > 2){
 							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
-							printf(" %3d %+4.2f %4.0f ~  \e[1;35m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
+							printf(" %d %3d %+4.2f %4.0f ~  \e[1;35m%s\e[0m\n", cand->snr, cand->score, time_sec, freq_hz, message.text);
 						}
 						else{
 							countanalyse++;
-							printf(" %3d %+4.2f %4.0f ~  \e[1;34m%s\e[0m\n", cand->score, time_sec, freq_hz, message.text);
+							printf(" %d %3d %+4.2f %4.0f ~  \e[1;34m%s\e[0m\n", cand->snr, cand->score, time_sec, freq_hz, message.text);
 							}
 							
 					
 					}else{
-						printf(" %3d %+4.2f %4.0f ~  %s\n", cand->score, time_sec, freq_hz, message.text);
+						printf(" %d %3d %+4.2f %4.0f ~  %s\n", cand->snr, cand->score, time_sec, freq_hz, message.text);
 					}
 				}
 			}
@@ -1001,8 +1001,8 @@ void RX_FT8()
 void gen_FT8_responses()
 {
 	sprintf(FT8.QSO_RESPONSES[0], "%s %s %s", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.Local_LOCATOR); 
-	sprintf(FT8.QSO_RESPONSES[1], "%s %s %+1.2d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
-	sprintf(FT8.QSO_RESPONSES[2], "%s %s R%+1.2d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	sprintf(FT8.QSO_RESPONSES[1], "%s %s %+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	sprintf(FT8.QSO_RESPONSES[2], "%s %s R%+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
 	sprintf(FT8.QSO_RESPONSES[3], "%s %s RRR", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 	sprintf(FT8.QSO_RESPONSES[4], "%s %s 73", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 }
