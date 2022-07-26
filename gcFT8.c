@@ -20,7 +20,7 @@
 
 #include "serial/cssl.h"
 
-#include "clFT8.h"
+#include "gcFT8.h"
 
 #include "hash/hash.h"
 
@@ -1362,7 +1362,13 @@ int main (int argc, char *argv[])
 		{
 			case 'h':
 				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1 -b\n"
-				"-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance\n-b for console beep on log\n"
+				"-d sound device, prefer to use plughw\n"
+				"-C your Callsign\n"
+                                "-L your locator\n"
+                                "-F TRX frequency\n"
+                                "-S serial device\n"
+				"-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance\n"
+				"-b for console beep on log\n"
 				"Red color: info, Blue: CQ finded,Magenta: filter by info missing or non standard message or call already made or Empty callsign\n");
 				exit(0);
 				break;
