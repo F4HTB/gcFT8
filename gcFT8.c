@@ -780,6 +780,8 @@ void RX_FT8()
 			//Creat array for analyse
 			char AnalyseArray[num_candidates][3][25];
 			float  AnalyseArrayFreqInfo[num_candidates];
+			float  AnalyseArraySNRInfo[num_candidates];
+			
 			int countanalyse=0;
 
 			// Hash table for decoded messages (to check for duplicates)
@@ -864,9 +866,6 @@ void RX_FT8()
 					memcpy(&decoded[idx_hash], &message, sizeof(message));
 					decoded_hashtable[idx_hash] = &decoded[idx_hash];
 					++num_decoded;
-
-					
-					int snr = 0; // TODO: compute SNR
 					
 					printDateTime_log();
 					
@@ -895,6 +894,7 @@ void RX_FT8()
 						unpackFT8mess(trashmess,AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
 						
 						AnalyseArrayFreqInfo[countanalyse]=freq_hz;
+						AnalyseArraySNRInfo[countanalyse]=cand->snr;
 						
 						if(ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message.text, " ") > 2){
 							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
@@ -911,51 +911,68 @@ void RX_FT8()
 					}
 				}
 			}
-			
-			
+						
 			if(countanalyse>0){
 				int index_from_ope = 0;
 				float dist = 0;
+				int actusnr;
 				
 				switch (FT8.filter_on_cq)
 				{
 				
-				case '0':
+				case 0:
 					index_from_ope = rand() % countanalyse;
 					break;
 					
-				case '1':
+				case 1:
 					index_from_ope = 0;
 					break;				
 				
-				case '2':
+				case 2:
+					dist = 0;
 					for(int i = 0; i<countanalyse;i++){
 						if(strlen(AnalyseArray[i][2]) == 4){
 							float latlonlocal[2];
 							latLonForGrid(AnalyseArray[i][2],latlonlocal);
-							#if DEBUG
-							printf("%s lat:%f lon:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1]);
-							#endif
 							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
+							#if DEBUG
+							printf("%s lat:%f lon:%f dist:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1],new_dist);
+							#endif
 							if(dist < new_dist){index_from_ope=i;dist=new_dist;}
 						}
 					}				
 					break;
 					
-				case '3':
+				case 3:
+					dist = 6372;
 					for(int i = 0; i<countanalyse;i++){
 						if(strlen(AnalyseArray[i][2]) == 4){
 							float latlonlocal[2];
 							latLonForGrid(AnalyseArray[i][2],latlonlocal);
-							#if DEBUG
-							printf("%s lat:%f lon:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1]);
-							#endif
 							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
+							#if DEBUG
+							printf("%s lat:%f lon:%f dist:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1],new_dist);
+							#endif
 							if(dist > new_dist){index_from_ope=i;dist=new_dist;}
 						}
 					}				
 					break;
+
+				case 4:
+					actusnr = -100;
+					for(int i = 0; i<countanalyse;i++){
+						if(AnalyseArraySNRInfo[i] > actusnr){index_from_ope=i;actusnr=AnalyseArraySNRInfo[i];}
+					}				
+					break;
+
+				case 5:
+					actusnr = 100;
+					for(int i = 0; i<countanalyse;i++){
+						if(AnalyseArraySNRInfo[i] < actusnr){index_from_ope=i;actusnr=AnalyseArraySNRInfo[i];}
+					}				
+					break;
 				
+								
 				default:
 					index_from_ope = rand() % countanalyse;
 					break;
@@ -1364,10 +1381,10 @@ int main (int argc, char *argv[])
 				printf ("clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1 -b\n"
 				"-d sound device, prefer to use plughw\n"
 				"-C your Callsign\n"
-                                "-L your locator\n"
-                                "-F TRX frequency\n"
-                                "-S serial device\n"
-				"-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance\n"
+				"-L your locator\n"
+				"-F TRX frequency\n"
+				"-S serial device\n"
+				"-x for set filter\n 0 random (default)\n 1 best decode score\n 2 max distance\n 3 min distance\n 4 max SNR\n 5 min SNR\n"
 				"-b for console beep on log\n"
 				"Red color: info, Blue: CQ finded,Magenta: filter by info missing or non standard message or call already made or Empty callsign\n");
 				exit(0);

@@ -38,3 +38,5 @@ Command line option:
 	Red color: info
 	Blue: CQ finded
 	Magenta: filter by info missing or non standard message or call already made or Empty callsign
+
+**Before using it please check if it is allowed in your country. For testing only.**
