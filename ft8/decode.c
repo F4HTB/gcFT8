@@ -272,6 +272,11 @@ int get_snr(const waterfall_t* wf, candidate_t candidate)
 	//Get this watterfall zoom on the candidate symbols
 	//Sort max to min and calculate max/min = ft8snr and return with substract of -26db for get snr on 2500hz
 	
+	
+	int m = wf->freq_osr*wf->time_osr;
+	int l = 8*m;
+	int n = 2*m;
+	
 	float freq_hz = (candidate.freq_offset + (float)candidate.freq_sub / 2) / 0.160f;
 	
 	float minC = 0, maxC = 0;
@@ -279,27 +284,27 @@ int get_snr(const waterfall_t* wf, candidate_t candidate)
 	int i = 0;
 	while(i<wf->num_blocks){
 		
-		int candidate_zoom[8*wf->freq_osr*wf->time_osr];
+		int candidate_zoom[l];
 		
 		for(int j = 0; j< 8; j++){
 			
-			for(int k = 0; k<wf->freq_osr*wf->time_osr; k++){
+			for(int k = 0; k<m; k++){
 			
-			candidate_zoom[(j*wf->freq_osr*wf->time_osr)+k] = wf->mag[( (i * wf->block_stride) + candidate.freq_offset + candidate.freq_sub + (j*wf->freq_osr*wf->time_osr) + k )];
+			candidate_zoom[(j*m)+k] = wf->mag[( (i * wf->block_stride) + candidate.freq_offset + candidate.freq_sub + (j*m) + k )];
 			}
 
 		}
 
 		
-		selectionSort(candidate_zoom,8*wf->freq_osr*wf->time_osr);
+		selectionSort(candidate_zoom,l);
 		
-		for(int j = 0; j< wf->freq_osr*wf->time_osr*2; j++){
-			minC += candidate_zoom[j+(2*wf->freq_osr*wf->time_osr)];
+		for(int j = 0; j< n; j++){
+			minC += candidate_zoom[j+(n)];
 			
 		}
 		
-		for(int j = 1; j<= wf->freq_osr*wf->time_osr; j++){
-			maxC += candidate_zoom[(8*wf->freq_osr*wf->time_osr)-j];
+		for(int j = 1; j<= m; j++){
+			maxC += candidate_zoom[(l)-j];
 			
 		}
 		
