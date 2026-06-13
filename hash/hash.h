@@ -1,6 +1,8 @@
 #ifndef _HASH_H_
 #define _HASH_H_
 
+#include <stdbool.h>
+
 #define hash_CAPACITY 50000
 
 #ifdef __cplusplus
@@ -36,7 +38,7 @@ extern "C"
 
 	typedef struct HashTable HashTable;
 
-	HashTable* ht_create_table();
+	HashTable* ht_create_table(void);
 	void ht_insert(HashTable* table, char* key);
 	void print_table(HashTable* table);
 	bool ht_check(HashTable* table, char* key);
@@ -46,4 +48,4 @@ extern "C"
 }
 #endif
 
-#endif 
+#endif

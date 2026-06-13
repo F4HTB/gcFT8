@@ -1,42 +1,75 @@
-# gcFT8 (garbage collector for Franke-Taylor design, 8-FSK modulation in ham radio communication)
-Automatic FT8 QSO systeme.
-QRPLAB digital interface commande ligne FT8 tool.
+# gcFT8
 
-QSO.log is the loogbook.
-Call_Table.log for hashtable filter on callsign.
+Automatic FT8/FT4 command-line QSO tool for ham radio use.
 
-Mabe adaptation for ft817 in the futur.
+## Logs
 
-Installation:
+`gcFT8` writes QSOs in ADIF format to one file per local callsign:
 
-	git clone https://github.com/F4HTB/gcFT8
-	make clean
-	make
+```text
+QSO_<CALLSIGN>.adif
+```
 
-Example of use:
+Example:
 
-	clFT8 -d plughw:CARD=PCH,DEV=0 -C F4JJJ -L JN38 -F 14074000 -S /dev/ttyACM0 -x 1 -b
+```text
+QSO_F4HTB.adif
+```
 
-Command line option:
+At startup, the same ADIF file is loaded to build the in-memory callsign filter table:
 
-	-d sound device, prefer to use plughw
-	-C your Callsign
-	-L your locator
-	-F TRX frequency
-	-S serial device
-	-x for set filter\n0 random (default)\n1 best decode score\n2 max distance\n3 min distance
-	-b for console beep on log
+- with `--band`, QSOs are filtered by `MODE` + `BAND`;
+- with `--frequency`, QSOs are filtered by `MODE` + integer MHz from `FREQ`;
+- the runtime hash table stores only remote callsigns.
 
-	-x for set filter
-		0 random (default)
-		1 best decode score
-		2 max distance
-		3 min distance
-		
-	-b for console beep on log QSO after finish
+## Build
 
-	Red color: info
-	Blue: CQ finded
-	Magenta: filter by info missing or non standard message or call already made or Empty callsign
+```bash
+make clean
+make
+```
 
-**Before using it please check if it is allowed in your country. For testing only.**
+## Example
+
+```bash
+./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --beep
+```
+
+## Options
+
+```text
+--help
+--mode <ft8|ft4>
+--sound-device <device>
+--callsign <callsign>
+--locator <locator>
+--frequency <hz>
+--band <80|60|40|30|20|17|15|12|11|10>
+--serial-device <device>
+--filter <0..6>
+--beep
+```
+
+`--frequency` and `--band` are mutually exclusive.
+
+## Filters
+
+```text
+0  Listen only, no automatic TX
+1  Random CQ selection
+2  Best decode score
+3  Maximum distance
+4  Minimum distance
+5  Maximum SNR
+6  Minimum SNR
+```
+
+## Colors
+
+```text
+Red      Local station related message
+Blue     CQ candidate
+Magenta  Filtered CQ, missing info, non-standard message, already worked callsign or empty callsign
+```
+
+Before using it, check whether automated operation is allowed in your country. For testing only.

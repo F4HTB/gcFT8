@@ -41,7 +41,7 @@ static LinkedList* linkedlist_insert(LinkedList* list, Ht_item* item) {
     }
  
     LinkedList* temp = list;
-    while (temp->next->next) {
+    while (temp->next) {
         temp = temp->next;
     }
      
@@ -51,25 +51,6 @@ static LinkedList* linkedlist_insert(LinkedList* list, Ht_item* item) {
     temp->next = node;
      
     return list;
-}
- 
-static Ht_item* linkedlist_remove(LinkedList* list) {
-    // Removes the head from the linked list
-    // and returns the item of the popped element
-    if (!list)
-        return NULL;
-    if (!list->next)
-        return NULL;
-    LinkedList* node = list->next;
-    LinkedList* temp = list;
-    temp->next = NULL;
-    list = node;
-    Ht_item* it = NULL;
-    memcpy(temp->item, it, sizeof(Ht_item));
-    free(temp->item->key);
-    free(temp->item);
-    free(temp);
-    return it;
 }
  
 static void free_linkedlist(LinkedList* list) {
@@ -110,7 +91,7 @@ Ht_item* create_item(char* key) {
     return item;
 }
  
-HashTable* ht_create_table() {
+HashTable* ht_create_table(void) {
     // Creates a new HashTable
 	int size = hash_CAPACITY;
     HashTable* table = (HashTable*) malloc (sizeof(HashTable));
@@ -161,6 +142,11 @@ void handle_collision(HashTable* table, unsigned long long index, Ht_item* item)
  }
  
 void ht_insert(HashTable* table, char* key) {
+    if (ht_check(table, key)) {
+		printf("Attention, duplicate entry in QSO filter table: %s\n",key);
+        return;
+    }
+
     // Create the item
     Ht_item* item = create_item(key);
  
@@ -185,16 +171,9 @@ void ht_insert(HashTable* table, char* key) {
     }
  
     else {
-            // Scenario 1: We only need to update
-            if (strcmp(current_item->key, key) == 0) {
-				printf("Attention, duble entry in Call_Table.log: %s\n",current_item->key);
-                return;
-            }
-        else {
-            // Scenario 2: Collision
-            handle_collision(table, index, item);
-            return;
-        }
+        // Collision
+        handle_collision(table, index, item);
+        return;
     }
 }
  
@@ -233,7 +212,7 @@ bool ht_check(HashTable* table, char* key) {
         item = head->item;
         head = head->next;
     }
-    return NULL;
+    return false;
 }
  
 void ht_delete(HashTable* table, char* key) {
@@ -277,9 +256,11 @@ void ht_delete(HashTable* table, char* key) {
             while (curr) {
                 if (strcmp(curr->item->key, key) == 0) {
                     if (prev == NULL) {
-                        // First element of the chain. Remove the chain
-                        free_linkedlist(head);
-                        table->overflow_buckets[index] = NULL;
+                        // First element of the chain.
+                        LinkedList* node = head;
+                        table->overflow_buckets[index] = head->next;
+                        node->next = NULL;
+                        free_linkedlist(node);
                         return;
                     }
                     else {
@@ -291,8 +272,8 @@ void ht_delete(HashTable* table, char* key) {
                         return;
                     }
                 }
-                curr = curr->next;
                 prev = curr;
+                curr = curr->next;
             }
  
         }
@@ -306,7 +287,7 @@ void print_search(HashTable* table, char* key) {
         return;
     }
     else {
-        printf("Key:%s\n", key, val);
+        printf("Key:%s Value:%s\n", key, val);
     }
 }
  

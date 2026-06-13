@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+#include <errno.h>
 
 
 
@@ -46,6 +47,26 @@ static const char *cssl_errors[]= {
 
 /* status of last cssl function */ 
 static cssl_error_t cssl_error=CSSL_OK;
+
+static int cssl_write_all(int fd, const uint8_t *data, size_t len)
+{
+    size_t written = 0;
+
+    while (written < len) {
+        ssize_t rc = write(fd, data + written, len - written);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -1;
+        }
+        if (rc == 0)
+            return -1;
+
+        written += (size_t)rc;
+    }
+
+    return 0;
+}
 
 /* prototype of signal handler */
 static void cssl_handler(int signo, siginfo_t *info, void *ignored);
@@ -464,7 +485,8 @@ void cssl_putchar(cssl_t *serial,
 	return;
     }    
 
-    write(serial->fd,&c,1);
+    if (cssl_write_all(serial->fd, (const uint8_t *)&c, 1) < 0)
+        cssl_error=CSSL_ERROR_OOPS;
 }
 
 /* sending a null-terminated string */
@@ -480,7 +502,8 @@ void cssl_putstring(cssl_t *serial,
 	cssl_error=CSSL_ERROR_NULLPOINTER;
 	return;
     }    
-    write(serial->fd,str,strlen(str));
+    if (cssl_write_all(serial->fd, (const uint8_t *)str, strlen(str)) < 0)
+        cssl_error=CSSL_ERROR_OOPS;
 }
 
 
@@ -499,7 +522,8 @@ void cssl_putdata(cssl_t *serial,
 	return;
     }    
 
-    write(serial->fd,data,datalen);
+    if (datalen < 0 || cssl_write_all(serial->fd, data, (size_t)datalen) < 0)
+        cssl_error=CSSL_ERROR_OOPS;
 }
 
 void cssl_drain(cssl_t *serial)
@@ -546,6 +570,9 @@ void cssl_handler(int signo, siginfo_t *info, void *ignored)
     cssl_t *cur;
     int n;
 
+    (void)signo;
+    (void)ignored;
+
     /* is this signal which says about
        incoming of the data? */
     if (info->si_code==POLL_IN) {
@@ -567,5 +594,3 @@ void cssl_handler(int signo, siginfo_t *info, void *ignored)
 	}
     }
 }
-
-
