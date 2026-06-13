@@ -1500,7 +1500,15 @@ void RX_FT8()
 						AnalyseArrayFreqInfo[countanalyse]=freq_hz;
 						AnalyseArraySNRInfo[countanalyse]=snr;
 						
-						if(ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]) || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message_text, " ") > 2){
+						bool empty_callsign = strlen(AnalyseArray[countanalyse][1]) == 0;
+						bool already_worked = !empty_callsign && ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]);
+						bool filtered_cq = empty_callsign || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message_text, " ") > 2;
+
+						if(already_worked){
+							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
+							printf(" %d %3d %+4.2f %4.0f ~  \033[1;33m%s\033[0m\n", snr, cand->score, time_sec, freq_hz, message_text);
+						}
+						else if(filtered_cq){
 							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
 							printf(" %d %3d %+4.2f %4.0f ~  \033[1;35m%s\033[0m\n", snr, cand->score, time_sec, freq_hz, message_text);
 						}
@@ -2454,7 +2462,8 @@ static void print_usage(const char* program_name, FILE* stream)
 		"Display colors:\n"
 		"  Red      Local station related message\n"
 		"  Blue     CQ candidate\n"
-		"  Magenta  Filtered CQ, missing info, non-standard message, already worked callsign or empty callsign\n");
+		"  Yellow   Already worked callsign\n"
+		"  Magenta  Filtered CQ, missing info, non-standard message or empty callsign\n");
 }
 
 enum

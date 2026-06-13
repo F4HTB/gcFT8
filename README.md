@@ -69,7 +69,8 @@ make
 ```text
 Red      Local station related message
 Blue     CQ candidate
-Magenta  Filtered CQ, missing info, non-standard message, already worked callsign or empty callsign
+Yellow   Already worked callsign
+Magenta  Filtered CQ, missing info, non-standard message or empty callsign
 ```
 
 Before using it, check whether automated operation is allowed in your country. For testing only.
