@@ -35,6 +35,32 @@ make
 ./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --beep
 ```
 
+## Automatic CQ Selection Examples
+
+Randomly select CQ calls at or above -18 dB:
+
+```bash
+./gcFT8 --mode ft8 --band 20 --filter 1 --snr-min -18
+```
+
+Select only CQ callsigns starting with `JA`, `VK`, or `ZL`:
+
+```bash
+./gcFT8 --mode ft8 --band 20 --filter 1 --only-prefix JA,VK,ZL
+```
+
+Select CQ calls in two-letter Maidenhead locator zones. `BP:CO` accepts `BO`, `BP`, `CO`, and `CP`:
+
+```bash
+./gcFT8 --mode ft8 --band 20 --filter 1 --only-locator-zone BP:CO
+```
+
+Combine filters before the final automatic CQ choice:
+
+```bash
+./gcFT8 --mode ft2 --band 20 --filter 5 --snr-min -16 --only-prefix JA,VK,ZL --only-locator-zone BP:FL,IO:KM,ON:PL
+```
+
 ## Options
 
 ```text
@@ -47,10 +73,23 @@ make
 --band <80|60|40|30|20|17|15|12|11|10>
 --serial-device <device>
 --filter <0..6>
+--snr-min <snr>
+--only-prefix <prefix[,prefix...]>
+--only-locator-zone <LL:LL[,LL:LL...]>
 --beep
 ```
 
 `--frequency` and `--band` are mutually exclusive.
+
+`--snr-min` is optional. When present, automatic CQ selection ignores candidates below the given SNR, for example `--snr-min -18`.
+
+`--only-prefix` is optional. When present, automatic CQ selection only keeps CQ callsigns matching one of the comma-separated prefixes, case-insensitively. Simple portable suffixes such as `/P`, `/M`, `/MM`, `/AM`, and `/QRP` are ignored for matching.
+
+`--only-locator-zone` is optional. When present, automatic CQ selection only keeps locators whose first two Maidenhead letters fall inside one of the inclusive ranges. For example, `BP:CO` accepts `BO`, `BP`, `CO`, and `CP`.
+
+These optional filters only affect automatic CQ candidate selection. Decoded messages are still displayed, direct messages to your station are not blocked, and the ADIF already-worked filter still applies.
+
+At startup, `gcFT8` prints a summary of the active mode, frequency, log file, filter mode, `--snr-min`, `--only-prefix`, and `--only-locator-zone` settings.
 
 ## Filters
 
@@ -67,6 +106,7 @@ make
 ## Colors
 
 ```text
+Cyan     RX/TX slot separator
 Red      Local station related message
 Blue     CQ candidate
 Yellow   Already worked callsign

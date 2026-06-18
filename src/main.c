@@ -4,6 +4,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <ctype.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,6 +36,9 @@
 
 #define FT8_TOKEN_TEXT_SIZE 25
 #define CALLSIGN_HASH_CACHE_SIZE 256
+#define GCFT8_MAX_ONLY_PREFIXES 64
+#define GCFT8_PREFIX_TEXT_SIZE 16
+#define GCFT8_MAX_LOCATOR_ZONES 64
 
 #define FT8_FILTER_LISTEN_ONLY 0
 #define FT8_FILTER_RANDOM_CQ 1
@@ -86,6 +90,14 @@ typedef struct
 	float rx_capture_time;
 	float tx_late_grace;
 } gcft8_mode_config_t;
+
+typedef struct
+{
+	int lon_min;
+	int lon_max;
+	int lat_min;
+	int lat_max;
+} gcft8_locator_zone_t;
 
 static const gcft8_band_frequency_t gcft8_band_frequencies[] = {
 	{ "80",  3573000,  3575000,  3578000 },
@@ -156,6 +168,12 @@ static gcft8_mode_t gcft8_mode = GCFT8_MODE_FT8;
 static bool gcft8_filter_has_band;
 static char gcft8_filter_band[8];
 static int gcft8_filter_frequency_mhz;
+static bool gcft8_snr_min_enabled;
+static int gcft8_snr_min;
+static char gcft8_only_prefixes[GCFT8_MAX_ONLY_PREFIXES][GCFT8_PREFIX_TEXT_SIZE];
+static size_t gcft8_only_prefix_count;
+static gcft8_locator_zone_t gcft8_locator_zones[GCFT8_MAX_LOCATOR_ZONES];
+static size_t gcft8_locator_zone_count;
 
 static bool gcft8_shutdown_requested(void)
 {
@@ -409,6 +427,356 @@ static bool ft8_parse_filter_mode(const char* value, int* filter_mode)
 
 	*filter_mode = result;
 	return true;
+}
+
+static bool gcft8_parse_snr_min(const char* value, int* snr_min)
+{
+	char* endptr = NULL;
+	long result;
+
+	if ((value == NULL) || (value[0] == '\0') || (snr_min == NULL))
+		return false;
+
+	errno = 0;
+	result = strtol(value, &endptr, 10);
+	if ((errno == ERANGE) || (endptr == value) || (endptr == NULL) || (*endptr != '\0'))
+		return false;
+
+	if ((result < INT_MIN) || (result > INT_MAX))
+		return false;
+
+	*snr_min = (int)result;
+	return true;
+}
+
+static bool gcft8_snr_filter_rejects(int snr)
+{
+	return gcft8_snr_min_enabled && (snr < gcft8_snr_min);
+}
+
+static bool gcft8_parse_prefix_token(const char* start, size_t len, char* dst, size_t dst_size)
+{
+	size_t out_len = 0;
+
+	while ((len > 0) && isspace((unsigned char)*start))
+	{
+		++start;
+		--len;
+	}
+
+	while ((len > 0) && isspace((unsigned char)start[len - 1]))
+		--len;
+
+	if ((len == 0) || (len >= dst_size))
+		return false;
+
+	for (size_t idx = 0; idx < len; ++idx)
+	{
+		unsigned char ch = (unsigned char)start[idx];
+
+		if (!isalnum(ch))
+			return false;
+
+		dst[out_len++] = (char)toupper(ch);
+	}
+
+	dst[out_len] = '\0';
+	return true;
+}
+
+static bool gcft8_parse_only_prefixes(const char* value)
+{
+	char parsed[GCFT8_MAX_ONLY_PREFIXES][GCFT8_PREFIX_TEXT_SIZE];
+	size_t parsed_count = 0;
+	size_t token_start = 0;
+	size_t idx = 0;
+
+	if ((value == NULL) || (value[0] == '\0'))
+		return false;
+
+	memset(parsed, 0, sizeof(parsed));
+
+	for (;;)
+	{
+		if ((value[idx] == ',') || (value[idx] == '\0'))
+		{
+			if (parsed_count >= GCFT8_MAX_ONLY_PREFIXES)
+				return false;
+
+			if (!gcft8_parse_prefix_token(value + token_start, idx - token_start, parsed[parsed_count], sizeof(parsed[parsed_count])))
+				return false;
+
+			++parsed_count;
+
+			if (value[idx] == '\0')
+				break;
+
+			token_start = idx + 1;
+		}
+
+		++idx;
+	}
+
+	memcpy(gcft8_only_prefixes, parsed, sizeof(parsed));
+	gcft8_only_prefix_count = parsed_count;
+	return true;
+}
+
+static bool gcft8_is_simple_portable_suffix(const char* suffix)
+{
+	return (strcmp(suffix, "P") == 0) ||
+	       (strcmp(suffix, "M") == 0) ||
+	       (strcmp(suffix, "MM") == 0) ||
+	       (strcmp(suffix, "AM") == 0) ||
+	       (strcmp(suffix, "QRP") == 0);
+}
+
+static void gcft8_clean_callsign_for_prefix(const char* callsign, char* dst, size_t dst_size)
+{
+	size_t out_len = 0;
+
+	if (dst_size == 0)
+		return;
+
+	if (callsign != NULL)
+	{
+		for (size_t idx = 0; callsign[idx] != '\0' && out_len + 1 < dst_size; ++idx)
+			dst[out_len++] = callsign[idx];
+	}
+
+	dst[out_len] = '\0';
+
+	for (;;)
+	{
+		char* slash = strrchr(dst, '/');
+
+		if ((slash == NULL) || !gcft8_is_simple_portable_suffix(slash + 1))
+			break;
+
+		*slash = '\0';
+	}
+}
+
+static bool gcft8_prefix_filter_rejects(const char* callsign)
+{
+	char cleaned_callsign[FT8_TOKEN_TEXT_SIZE];
+
+	if (gcft8_only_prefix_count == 0)
+		return false;
+
+	gcft8_clean_callsign_for_prefix(callsign, cleaned_callsign, sizeof(cleaned_callsign));
+	if (cleaned_callsign[0] == '\0')
+		return true;
+
+	for (size_t idx = 0; idx < gcft8_only_prefix_count; ++idx)
+	{
+		size_t prefix_len = strlen(gcft8_only_prefixes[idx]);
+
+		if (strncmp(cleaned_callsign, gcft8_only_prefixes[idx], prefix_len) == 0)
+			return false;
+	}
+
+	return true;
+}
+
+static bool gcft8_parse_locator_zone_endpoint(const char* start, size_t len, int* lon, int* lat)
+{
+	char lon_char;
+	char lat_char;
+
+	while ((len > 0) && isspace((unsigned char)*start))
+	{
+		++start;
+		--len;
+	}
+
+	while ((len > 0) && isspace((unsigned char)start[len - 1]))
+		--len;
+
+	if ((len != 2) || (lon == NULL) || (lat == NULL))
+		return false;
+
+	lon_char = (char)toupper((unsigned char)start[0]);
+	lat_char = (char)toupper((unsigned char)start[1]);
+
+	if ((lon_char < 'A') || (lon_char > 'R') || (lat_char < 'A') || (lat_char > 'R'))
+		return false;
+
+	*lon = lon_char - 'A';
+	*lat = lat_char - 'A';
+	return true;
+}
+
+static bool gcft8_parse_locator_zone_token(const char* start, size_t len, gcft8_locator_zone_t* zone)
+{
+	bool found_colon = false;
+	size_t colon_pos = 0;
+	int lon_a;
+	int lat_a;
+	int lon_b;
+	int lat_b;
+
+	if (zone == NULL)
+		return false;
+
+	for (size_t idx = 0; idx < len; ++idx)
+	{
+		if (start[idx] == ':')
+		{
+			if (found_colon)
+				return false;
+
+			found_colon = true;
+			colon_pos = idx;
+		}
+	}
+
+	if (!found_colon)
+		return false;
+
+	if (!gcft8_parse_locator_zone_endpoint(start, colon_pos, &lon_a, &lat_a))
+		return false;
+
+	if (!gcft8_parse_locator_zone_endpoint(start + colon_pos + 1, len - colon_pos - 1, &lon_b, &lat_b))
+		return false;
+
+	zone->lon_min = (lon_a < lon_b) ? lon_a : lon_b;
+	zone->lon_max = (lon_a > lon_b) ? lon_a : lon_b;
+	zone->lat_min = (lat_a < lat_b) ? lat_a : lat_b;
+	zone->lat_max = (lat_a > lat_b) ? lat_a : lat_b;
+	return true;
+}
+
+static bool gcft8_parse_locator_zones(const char* value)
+{
+	gcft8_locator_zone_t parsed[GCFT8_MAX_LOCATOR_ZONES];
+	size_t parsed_count = 0;
+	size_t token_start = 0;
+	size_t idx = 0;
+
+	if ((value == NULL) || (value[0] == '\0'))
+		return false;
+
+	memset(parsed, 0, sizeof(parsed));
+
+	for (;;)
+	{
+		if ((value[idx] == ',') || (value[idx] == '\0'))
+		{
+			if (parsed_count >= GCFT8_MAX_LOCATOR_ZONES)
+				return false;
+
+			if (!gcft8_parse_locator_zone_token(value + token_start, idx - token_start, &parsed[parsed_count]))
+				return false;
+
+			++parsed_count;
+
+			if (value[idx] == '\0')
+				break;
+
+			token_start = idx + 1;
+		}
+
+		++idx;
+	}
+
+	memset(gcft8_locator_zones, 0, sizeof(gcft8_locator_zones));
+	memcpy(gcft8_locator_zones, parsed, parsed_count * sizeof(parsed[0]));
+	gcft8_locator_zone_count = parsed_count;
+	return true;
+}
+
+static bool gcft8_locator_zone_filter_rejects(const char* locator)
+{
+	int lon;
+	int lat;
+
+	if (gcft8_locator_zone_count == 0)
+		return false;
+
+	if ((locator == NULL) || (locator[0] < 'A') || (locator[0] > 'R') || (locator[1] < 'A') || (locator[1] > 'R'))
+		return true;
+
+	lon = locator[0] - 'A';
+	lat = locator[1] - 'A';
+
+	for (size_t idx = 0; idx < gcft8_locator_zone_count; ++idx)
+	{
+		const gcft8_locator_zone_t* zone = &gcft8_locator_zones[idx];
+
+		if ((lon >= zone->lon_min) && (lon <= zone->lon_max) && (lat >= zone->lat_min) && (lat <= zone->lat_max))
+			return false;
+	}
+
+	return true;
+}
+
+static void gcft8_format_only_prefixes(char* dst, size_t dst_size)
+{
+	size_t offset = 0;
+
+	if (dst_size == 0)
+		return;
+
+	if (gcft8_only_prefix_count == 0)
+	{
+		copy_text(dst, dst_size, "off");
+		return;
+	}
+
+	dst[0] = '\0';
+	for (size_t idx = 0; idx < gcft8_only_prefix_count; ++idx)
+	{
+		int written = snprintf(dst + offset, dst_size - offset, "%s%s", (idx == 0) ? "" : ",", gcft8_only_prefixes[idx]);
+
+		if (written < 0)
+			break;
+
+		if ((size_t)written >= dst_size - offset)
+		{
+			dst[dst_size - 1] = '\0';
+			break;
+		}
+
+		offset += (size_t)written;
+	}
+}
+
+static void gcft8_format_locator_zones(char* dst, size_t dst_size)
+{
+	size_t offset = 0;
+
+	if (dst_size == 0)
+		return;
+
+	if (gcft8_locator_zone_count == 0)
+	{
+		copy_text(dst, dst_size, "off");
+		return;
+	}
+
+	dst[0] = '\0';
+	for (size_t idx = 0; idx < gcft8_locator_zone_count; ++idx)
+	{
+		const gcft8_locator_zone_t* zone = &gcft8_locator_zones[idx];
+		int written = snprintf(dst + offset, dst_size - offset, "%s%c%c:%c%c",
+			(idx == 0) ? "" : ",",
+			(char)('A' + zone->lon_min),
+			(char)('A' + zone->lat_max),
+			(char)('A' + zone->lon_max),
+			(char)('A' + zone->lat_min));
+
+		if (written < 0)
+			break;
+
+		if ((size_t)written >= dst_size - offset)
+		{
+			dst[dst_size - 1] = '\0';
+			break;
+		}
+
+		offset += (size_t)written;
+	}
 }
 
 static bool ft8_getrandom_u32(uint32_t* value)
@@ -869,6 +1237,40 @@ void printDateTime_log(){
 		printf("%d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 	else
 		printf("%d-%02d-%02d %02d:%02d:%02d.%03d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
+}
+
+static void print_slot_separator(const gcft8_mode_config_t* mode_cfg, const char* direction)
+{
+	long long slot_ms;
+	long long now_ms;
+	long long slot_start_ms;
+	time_t t;
+	int ms;
+	struct tm tm;
+
+	if (mode_cfg == NULL)
+		mode_cfg = gcft8_current_mode_config();
+	if (direction == NULL)
+		direction = "";
+
+	clear_status_line();
+	slot_ms = (long long)(mode_cfg->slot_time * 1000.0f + 0.5f);
+	now_ms = (long long)(now() * 1000.0);
+	if (slot_ms <= 0)
+		slot_start_ms = now_ms;
+	else
+		slot_start_ms = (now_ms / slot_ms) * slot_ms;
+
+	t = (time_t)(slot_start_ms / 1000);
+	ms = (int)(slot_start_ms % 1000);
+	tm = *gmtime(&t);
+
+	printf("\033[1;36m-- %s %s ", mode_cfg->name, direction);
+	if (ms == 0)
+		printf("%d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+	else
+		printf("%d-%02d-%02d %02d:%02d:%02d.%03d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
+	printf(" --\033[0m\n");
 }
 
 void printDateTime(){
@@ -1367,6 +1769,8 @@ void RX_FT8()
 			printf( "Max magnitude: %.1f dB\n", mon.max_mag);
 			#endif
 			
+			print_slot_separator(mode_cfg, "RX");
+
 			// Find top candidates by Costas sync score and localize them in time and frequency
 			ftx_candidate_t candidate_list[kMax_candidates];
 			int num_candidates = ftx_find_candidates(&mon.wf, kMax_candidates, candidate_list, kMin_score);
@@ -1507,7 +1911,10 @@ void RX_FT8()
 						
 						bool empty_callsign = strlen(AnalyseArray[countanalyse][1]) == 0;
 						bool already_worked = !empty_callsign && ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]);
-						bool filtered_cq = empty_callsign || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message_text, " ") > 2;
+						bool rejected_by_snr = gcft8_snr_filter_rejects(snr);
+						bool rejected_by_prefix = gcft8_prefix_filter_rejects(AnalyseArray[countanalyse][1]);
+						bool rejected_by_locator_zone = gcft8_locator_zone_filter_rejects(AnalyseArray[countanalyse][2]);
+						bool filtered_cq = empty_callsign || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message_text, " ") > 2 || rejected_by_snr || rejected_by_prefix || rejected_by_locator_zone;
 
 						if(already_worked){
 							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
@@ -2207,6 +2614,7 @@ void TX_FT8()
 					break;
 				}
 
+				print_slot_separator(mode_cfg, "TX");
 				printDateTime_ms();printf(" start send message\n");
 				
 				tranceiver_rtx(_TX_);
@@ -2443,6 +2851,9 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  --band <band>              Mode-specific band frequency, exclusive with --frequency; suffix m is allowed\n"
 		"  --serial-device <device>   Transceiver serial device (default: /dev/ttyACM0)\n"
 		"  --filter <mode>            Operating/filter mode (default: 0, listen only)\n"
+		"  --snr-min <snr>            Reject CQ candidates below this SNR, for example -18\n"
+		"  --only-prefix <list>       Only auto-select CQ callsigns with these prefixes, for example JA,VK,ZL\n"
+		"  --only-locator-zone <list> Only auto-select CQ locators in two-letter zones, for example BP:FL\n"
 		"  --beep                     Enable console beep when a QSO is logged\n"
 		"\n"
 		"Filters:\n"
@@ -2480,6 +2891,7 @@ static void print_usage(const char* program_name, FILE* stream)
 	fprintf(stream,
 		"\n"
 		"Display colors:\n"
+		"  Cyan     RX/TX slot separator\n"
 		"  Red      Local station related message\n"
 		"  Blue     CQ candidate\n"
 		"  Yellow   Already worked callsign\n"
@@ -2497,6 +2909,9 @@ enum
 	CLI_OPTION_FREQUENCY,
 	CLI_OPTION_BAND,
 	CLI_OPTION_FILTER,
+	CLI_OPTION_SNR_MIN,
+	CLI_OPTION_ONLY_PREFIX,
+	CLI_OPTION_ONLY_LOCATOR_ZONE,
 	CLI_OPTION_SERIAL_DEVICE
 };
 
@@ -2516,6 +2931,9 @@ int main (int argc, char *argv[])
 		{ "frequency", required_argument, NULL, CLI_OPTION_FREQUENCY },
 		{ "band", required_argument, NULL, CLI_OPTION_BAND },
 		{ "filter", required_argument, NULL, CLI_OPTION_FILTER },
+		{ "snr-min", required_argument, NULL, CLI_OPTION_SNR_MIN },
+		{ "only-prefix", required_argument, NULL, CLI_OPTION_ONLY_PREFIX },
+		{ "only-locator-zone", required_argument, NULL, CLI_OPTION_ONLY_LOCATOR_ZONE },
 		{ "serial-device", required_argument, NULL, CLI_OPTION_SERIAL_DEVICE },
 		{ NULL, 0, NULL, 0 }
 	};
@@ -2567,6 +2985,34 @@ int main (int argc, char *argv[])
 				if (!ft8_parse_filter_mode(optarg, &FT8.filter_on_cq))
 				{
 					fprintf(stderr, "Invalid filter '%s'. Allowed filters: 0, 1, 2, 3, 4, 5, 6.\n", optarg);
+					print_usage(argv[0], stderr);
+					exit(1);
+				}
+				break;
+				return 1;
+			case CLI_OPTION_SNR_MIN:
+				if (!gcft8_parse_snr_min(optarg, &gcft8_snr_min))
+				{
+					fprintf(stderr, "Invalid SNR minimum '%s'. Use an integer value, for example -18.\n", optarg);
+					print_usage(argv[0], stderr);
+					exit(1);
+				}
+				gcft8_snr_min_enabled = true;
+				break;
+				return 1;
+			case CLI_OPTION_ONLY_PREFIX:
+				if (!gcft8_parse_only_prefixes(optarg))
+				{
+					fprintf(stderr, "Invalid prefix list '%s'. Use comma-separated alphanumeric prefixes, for example JA,VK,ZL.\n", optarg);
+					print_usage(argv[0], stderr);
+					exit(1);
+				}
+				break;
+				return 1;
+			case CLI_OPTION_ONLY_LOCATOR_ZONE:
+				if (!gcft8_parse_locator_zones(optarg))
+				{
+					fprintf(stderr, "Invalid locator zone list '%s'. Use comma-separated LL:LL ranges with A-R letters, for example BP:FL,IO:KM.\n", optarg);
 					print_usage(argv[0], stderr);
 					exit(1);
 				}
@@ -2629,17 +3075,40 @@ int main (int argc, char *argv[])
 	playback_audioInit();
 	
 	const gcft8_mode_config_t* startup_mode_cfg = gcft8_current_mode_config();
+	char startup_snr_min_text[32];
+	char startup_prefix_filter[256];
+	char startup_locator_zone_filter[256];
+	if (gcft8_snr_min_enabled)
+		snprintf(startup_snr_min_text, sizeof(startup_snr_min_text), "%d", gcft8_snr_min);
+	else
+		copy_text(startup_snr_min_text, sizeof(startup_snr_min_text), "off");
+	gcft8_format_only_prefixes(startup_prefix_filter, sizeof(startup_prefix_filter));
+	gcft8_format_locator_zones(startup_locator_zone_filter, sizeof(startup_locator_zone_filter));
 	printf("Starting with this:\n"
 		"-mode is %s\n"
 		"-set Freq to %d\n"
-		"-your callsing is %s\n"
+		"-your callsign is %s\n"
 		"-your locator is %s\n"
 		"-TRX serial port is %s\n"
 		"-Sound device is %s\n"
 		"-ADIF log file is %s\n"
-		"-CQ filter methode %d\n"
+		"-CQ filter method is %d\n"
+		"-SNR minimum filter is %s\n"
+		"-Prefix filter is %s\n"
+		"-Locator zone filter is %s\n"
 		"-Beep on log %d\n",
-		startup_mode_cfg->name,FT8.Tranceiver_VFOA_Freq,FT8.Local_CALLSIGN,FT8.Local_LOCATOR,serial.pathname,sound.capture_sound_device,FT8.log_file_name,FT8.filter_on_cq,FT8.beep_on_log);
+		startup_mode_cfg->name,
+		FT8.Tranceiver_VFOA_Freq,
+		FT8.Local_CALLSIGN,
+		FT8.Local_LOCATOR,
+		serial.pathname,
+		sound.capture_sound_device,
+		FT8.log_file_name,
+		FT8.filter_on_cq,
+		startup_snr_min_text,
+		startup_prefix_filter,
+		startup_locator_zone_filter,
+		FT8.beep_on_log);
 		
 	if(FT8.beep_on_log){putchar('\07');putchar('\a');}
 		
