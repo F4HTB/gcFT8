@@ -1,4 +1,6 @@
 gcFT8
+build/
 *.log
 *.adif
 *.o
+*.a

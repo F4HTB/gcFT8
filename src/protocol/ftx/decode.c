@@ -30,8 +30,14 @@ static void heapify_down(ftx_candidate_t heap[], int heap_size);
 static void heapify_up(ftx_candidate_t heap[], int heap_size);
 
 static void ftx_normalize_logl(float* log174);
+static bool ftx_is_4tone_protocol(ftx_protocol_t protocol);
 static void ft4_extract_symbol(const WF_ELEM_T* wf, float* logl);
 static void ft8_extract_symbol(const WF_ELEM_T* wf, float* logl);
+
+static bool ftx_is_4tone_protocol(ftx_protocol_t protocol)
+{
+    return (protocol == FTX_PROTOCOL_FT4) || (protocol == FTX_PROTOCOL_FT2);
+}
 
 static const WF_ELEM_T* get_cand_mag(const ftx_waterfall_t* wf, const ftx_candidate_t* candidate)
 {
@@ -173,8 +179,22 @@ static int ft4_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
 
 int ftx_find_candidates(const ftx_waterfall_t* wf, int num_candidates, ftx_candidate_t heap[], int min_score)
 {
-    int (*sync_fun)(const ftx_waterfall_t*, const ftx_candidate_t*) = (wf->protocol == FTX_PROTOCOL_FT4) ? ft4_sync_score : ft8_sync_score;
-    int num_tones = (wf->protocol == FTX_PROTOCOL_FT4) ? 4 : 8;
+    bool is_4tone = ftx_is_4tone_protocol(wf->protocol);
+    int (*sync_fun)(const ftx_waterfall_t*, const ftx_candidate_t*) = is_4tone ? ft4_sync_score : ft8_sync_score;
+    int num_tones = is_4tone ? 4 : 8;
+    int time_offset_min = -10;
+    int time_offset_max = 20;
+
+    if (wf->protocol == FTX_PROTOCOL_FT4)
+    {
+        time_offset_min = -34;
+        time_offset_max = 67;
+    }
+    else if (wf->protocol == FTX_PROTOCOL_FT2)
+    {
+        time_offset_min = -23;
+        time_offset_max = 63;
+    }
 
     int heap_size = 0;
     ftx_candidate_t candidate;
@@ -186,7 +206,7 @@ int ftx_find_candidates(const ftx_waterfall_t* wf, int num_candidates, ftx_candi
     {
         for (candidate.freq_sub = 0; candidate.freq_sub < wf->freq_osr; ++candidate.freq_sub)
         {
-            for (candidate.time_offset = -10; candidate.time_offset < 20; ++candidate.time_offset)
+            for (candidate.time_offset = time_offset_min; candidate.time_offset < time_offset_max; ++candidate.time_offset)
             {
                 for (candidate.freq_offset = 0; (candidate.freq_offset + num_tones - 1) < wf->num_bins; ++candidate.freq_offset)
                 {
@@ -311,7 +331,7 @@ static void ftx_normalize_logl(float* log174)
 bool ftx_decode_candidate(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, int max_iterations, ftx_message_t* message, ftx_decode_status_t* status)
 {
     float log174[FTX_LDPC_N]; // message bits encoded as likelihood
-    if (wf->protocol == FTX_PROTOCOL_FT4)
+    if (ftx_is_4tone_protocol(wf->protocol))
     {
         ft4_extract_likelihood(wf, cand, log174);
     }
@@ -350,10 +370,9 @@ bool ftx_decode_candidate(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
     // Reuse CRC value as a hash for the message (TODO: 14 bits only, should perhaps use full 16 or 32 bits?)
     message->hash = status->crc_calculated;
 
-    if (wf->protocol == FTX_PROTOCOL_FT4)
+    if (ftx_is_4tone_protocol(wf->protocol))
     {
-        // '[..] for FT4 only, in order to avoid transmitting a long string of zeros when sending CQ messages,
-        // the assembled 77-bit message is bitwise exclusive-OR’ed with [a] pseudorandom sequence before computing the CRC and FEC parity bits'
+        // FT4 and Decodium FT2 whiten the 77-bit payload before computing CRC/FEC.
         for (int i = 0; i < 10; ++i)
         {
             message->payload[i] = a91[i] ^ kFT4_XOR_sequence[i];

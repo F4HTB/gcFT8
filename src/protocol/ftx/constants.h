@@ -14,6 +14,9 @@ extern "C"
 #define FT4_SYMBOL_PERIOD (0.048f) ///< FT4 symbol duration, defines tone deviation in Hz and symbol rate
 #define FT4_SLOT_TIME     (7.5f)   ///< FT4 slot period
 
+#define FT2_SYMBOL_PERIOD (0.024f) ///< FT2 symbol duration, defines tone deviation in Hz and symbol rate
+#define FT2_SLOT_TIME     (3.75f)  ///< FT2 slot period
+
 // Define FT8 symbol counts
 // FT8 message structure:
 //     S D1 S D2 S
@@ -38,6 +41,20 @@ extern "C"
 #define FT4_NUM_SYNC    (4)   ///< Number of sync groups
 #define FT4_SYNC_OFFSET (33)  ///< Offset between sync groups
 
+// Define FT2 symbol counts
+// FT2 message structure follows the Decodium FT2 frame:
+//     R Sa D1 Sb D2 Sc D3 Sd R
+// R  - full-symbol ramp span (no payload information conveyed)
+// Sx - one of four _different_ sync blocks (4 symbols of Costas pattern)
+// Dy - data block (29 symbols each encoding 2 bits)
+// The 103 sync+data symbols are represented here inside the 105-symbol waveform span.
+#define FT2_ND          (87)  ///< Data symbols
+#define FT2_NR          (2)   ///< Ramp symbols (beginning + end)
+#define FT2_NN          (105) ///< Total channel symbols (FT2_NS + FT2_ND + FT2_NR)
+#define FT2_LENGTH_SYNC (4)   ///< Length of each sync group
+#define FT2_NUM_SYNC    (4)   ///< Number of sync groups
+#define FT2_SYNC_OFFSET (33)  ///< Offset between sync groups
+
 // Define LDPC parameters
 #define FTX_LDPC_N       (174)                  ///< Number of bits in the encoded message (payload with LDPC checksum bits)
 #define FTX_LDPC_K       (91)                   ///< Number of payload bits (including CRC)
@@ -52,7 +69,8 @@ extern "C"
 typedef enum
 {
     FTX_PROTOCOL_FT4,
-    FTX_PROTOCOL_FT8
+    FTX_PROTOCOL_FT8,
+    FTX_PROTOCOL_FT2
 } ftx_protocol_t;
 
 /// Costas 7x7 tone pattern for synchronization

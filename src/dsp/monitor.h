@@ -6,10 +6,10 @@ extern "C"
 {
 #endif
 
-#include <ft8/decode.h>
-#include <fft/kiss_fftr.h>
+#include "protocol/ftx/decode.h"
+#include "vendor/kissfft/kiss_fftr.h"
 
-/// Configuration options for FT4/FT8 monitor
+/// Configuration options for FT2/FT4/FT8 monitor
 typedef struct
 {
     float f_min;             ///< Lower frequency bound for analysis
@@ -17,14 +17,14 @@ typedef struct
     int sample_rate;         ///< Sample rate in Hertz
     int time_osr;            ///< Number of time subdivisions
     int freq_osr;            ///< Number of frequency subdivisions
-    ftx_protocol_t protocol; ///< Protocol: FT4 or FT8
+    ftx_protocol_t protocol; ///< Protocol: FT2, FT4 or FT8
 } monitor_config_t;
 
-/// FT4/FT8 monitor object that manages DSP processing of incoming audio data
+/// FT2/FT4/FT8 monitor object that manages DSP processing of incoming audio data
 /// and prepares a waterfall object
 typedef struct
 {
-    float symbol_period; ///< FT4/FT8 symbol period in seconds
+    float symbol_period; ///< FT2/FT4/FT8 symbol period in seconds
     int min_bin;         ///< First FFT bin in the frequency range (begin)
     int max_bin;         ///< First FFT bin outside the frequency range (end)
     int block_size;      ///< Number of samples per symbol (block)

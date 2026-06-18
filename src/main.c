@@ -16,20 +16,21 @@
 #include <sys/random.h>
 #include <sys/time.h>
 
-#include "ft8/decode.h"
-#include "ft8/constants.h"
-#include "ft8/encode.h"
-#include "ft8/message.h"
+#include "protocol/ftx/decode.h"
+#include "protocol/ftx/constants.h"
+#include "protocol/ftx/encode.h"
+#include "protocol/ftx/message.h"
 
-#include "fft/kiss_fftr.h"
+#include "dsp/monitor.h"
+#include "dsp/gfsk.h"
 
-#include "common/monitor.h"
+#include "protocol/ft2/ft2_waveform.h"
 
-#include "serial/cssl.h"
+#include "vendor/cssl/cssl.h"
 
-#include "gcFT8.h"
+#include "app/state.h"
 
-#include "hash/hash.h"
+#include "util/hash_table.h"
 
 
 #define FT8_TOKEN_TEXT_SIZE 25
@@ -45,16 +46,22 @@
 
 #define FT8_SYMBOL_BT 2.0f ///< symbol smoothing filter bandwidth factor (BT)
 #define FT4_SYMBOL_BT 1.0f ///< symbol smoothing filter bandwidth factor (BT)
+#define FT2_SYMBOL_BT 1.0f ///< symbol smoothing filter bandwidth factor (BT)
 
 #define FT8_TX_LEAD_SILENCE_SEC 0.5f
 #define FT8_TX_TAIL_SILENCE_SEC 0.1f
 #define FT4_TX_LEAD_SILENCE_SEC 0.3f
 #define FT4_TX_TAIL_SILENCE_SEC 0.1f
+#define FT2_TX_LEAD_SILENCE_SEC 0.1f
+#define FT2_TX_TAIL_SILENCE_SEC 0.1f
+#define FT2_RX_CAPTURE_MARGIN_SEC 0.1f
+#define FT2_TX_LATE_GRACE_SEC 0.5f
 
 typedef enum
 {
 	GCFT8_MODE_FT8,
-	GCFT8_MODE_FT4
+	GCFT8_MODE_FT4,
+	GCFT8_MODE_FT2
 } gcft8_mode_t;
 
 typedef struct
@@ -62,6 +69,7 @@ typedef struct
 	const char* band;
 	int ft8_frequency_hz;
 	int ft4_frequency_hz;
+	int ft2_frequency_hz;
 } gcft8_band_frequency_t;
 
 typedef struct
@@ -76,19 +84,20 @@ typedef struct
 	float tx_lead_silence;
 	float tx_tail_silence;
 	float rx_capture_time;
+	float tx_late_grace;
 } gcft8_mode_config_t;
 
 static const gcft8_band_frequency_t gcft8_band_frequencies[] = {
-	{ "80",  3573000,  3575000 },
-	{ "60",  5357000,  5357000 },
-	{ "40",  7074000,  7047500 },
-	{ "30", 10136000, 10140000 },
-	{ "20", 14074000, 14080000 },
-	{ "17", 18100000, 18104000 },
-	{ "15", 21074000, 21140000 },
-	{ "12", 24915000, 24919000 },
-	{ "11", 27245000,        0 },
-	{ "10", 28074000, 28180000 }
+	{ "80",  3573000,  3575000,  3578000 },
+	{ "60",  5357000,  5357000,  5360000 },
+	{ "40",  7074000,  7047500,  7062000 },
+	{ "30", 10136000, 10140000, 10144000 },
+	{ "20", 14074000, 14080000, 14084000 },
+	{ "17", 18100000, 18104000, 18108000 },
+	{ "15", 21074000, 21140000, 21144000 },
+	{ "12", 24915000, 24919000, 24923000 },
+	{ "11", 27245000,        0,        0 },
+	{ "10", 28074000, 28180000, 28184000 }
 };
 
 static const gcft8_mode_config_t gcft8_mode_configs[] = {
@@ -102,7 +111,8 @@ static const gcft8_mode_config_t gcft8_mode_configs[] = {
 		.slot_time = FT8_SLOT_TIME,
 		.tx_lead_silence = FT8_TX_LEAD_SILENCE_SEC,
 		.tx_tail_silence = FT8_TX_TAIL_SILENCE_SEC,
-		.rx_capture_time = 13.6f
+		.rx_capture_time = 13.6f,
+		.tx_late_grace = 0.0f
 	},
 	{
 		.mode = GCFT8_MODE_FT4,
@@ -114,7 +124,21 @@ static const gcft8_mode_config_t gcft8_mode_configs[] = {
 		.slot_time = FT4_SLOT_TIME,
 		.tx_lead_silence = FT4_TX_LEAD_SILENCE_SEC,
 		.tx_tail_silence = FT4_TX_TAIL_SILENCE_SEC,
-		.rx_capture_time = FT4_SLOT_TIME - 0.4f
+		.rx_capture_time = FT4_SLOT_TIME - 0.4f,
+		.tx_late_grace = 0.0f
+	},
+	{
+		.mode = GCFT8_MODE_FT2,
+		.name = "ft2",
+		.protocol = FTX_PROTOCOL_FT2,
+		.num_tones = FT2_NN,
+		.symbol_period = FT2_SYMBOL_PERIOD,
+		.symbol_bt = FT2_SYMBOL_BT,
+		.slot_time = FT2_SLOT_TIME,
+		.tx_lead_silence = FT2_TX_LEAD_SILENCE_SEC,
+		.tx_tail_silence = FT2_TX_TAIL_SILENCE_SEC,
+		.rx_capture_time = FT2_SLOT_TIME - FT2_RX_CAPTURE_MARGIN_SEC,
+		.tx_late_grace = FT2_TX_LATE_GRACE_SEC
 	}
 };
 
@@ -126,6 +150,7 @@ typedef struct
 
 static callsign_hash_entry_t callsign_hash_cache[CALLSIGN_HASH_CACHE_SIZE];
 static int callsign_hash_cache_size;
+static pthread_mutex_t callsign_hash_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static volatile sig_atomic_t shutdown_requested;
 static gcft8_mode_t gcft8_mode = GCFT8_MODE_FT8;
 static bool gcft8_filter_has_band;
@@ -250,7 +275,22 @@ static bool gcft8_frequency_for_band(const char* band, gcft8_mode_t mode, int* f
 	{
 		if (strcmp(normalized_band, gcft8_band_frequencies[idx].band) == 0)
 		{
-			int frequency = (mode == GCFT8_MODE_FT4) ? gcft8_band_frequencies[idx].ft4_frequency_hz : gcft8_band_frequencies[idx].ft8_frequency_hz;
+			int frequency;
+
+			switch (mode)
+			{
+				case GCFT8_MODE_FT2:
+					frequency = gcft8_band_frequencies[idx].ft2_frequency_hz;
+					break;
+				case GCFT8_MODE_FT4:
+					frequency = gcft8_band_frequencies[idx].ft4_frequency_hz;
+					break;
+				case GCFT8_MODE_FT8:
+				default:
+					frequency = gcft8_band_frequencies[idx].ft8_frequency_hz;
+					break;
+			}
+
 			if (frequency <= 0)
 				return false;
 
@@ -264,7 +304,16 @@ static bool gcft8_frequency_for_band(const char* band, gcft8_mode_t mode, int* f
 
 static const char* gcft8_adif_mode_name(void)
 {
-	return (gcft8_mode == GCFT8_MODE_FT4) ? "FT4" : "FT8";
+	switch (gcft8_mode)
+	{
+		case GCFT8_MODE_FT2:
+			return "FT2";
+		case GCFT8_MODE_FT4:
+			return "FT4";
+		case GCFT8_MODE_FT8:
+		default:
+			return "FT8";
+	}
 }
 
 static bool gcft8_normalize_band_adif(const char* band, char* out, size_t out_size)
@@ -437,13 +486,20 @@ static int ft8_random_index(int count)
 	}
 }
 
-static void callsign_hash_cache_init(void)
+static void callsign_hash_cache_init_unlocked(void)
 {
 	callsign_hash_cache_size = 0;
 	memset(callsign_hash_cache, 0, sizeof(callsign_hash_cache));
 }
 
-static void callsign_hash_cache_insert(const char* callsign, uint32_t stored_hash)
+static void callsign_hash_cache_init(void)
+{
+	pthread_mutex_lock(&callsign_hash_cache_lock);
+	callsign_hash_cache_init_unlocked();
+	pthread_mutex_unlock(&callsign_hash_cache_lock);
+}
+
+static void callsign_hash_cache_insert_unlocked(const char* callsign, uint32_t stored_hash)
 {
 	uint16_t hash10 = ((stored_hash & 0x3FFFFFu) >> 12) & 0x3FFu;
 	int idx_hash = (hash10 * 23) % CALLSIGN_HASH_CACHE_SIZE;
@@ -476,8 +532,9 @@ static void callsign_hash_cache_cleanup(uint8_t max_age)
 {
 	callsign_hash_entry_t old_cache[CALLSIGN_HASH_CACHE_SIZE];
 
+	pthread_mutex_lock(&callsign_hash_cache_lock);
 	memcpy(old_cache, callsign_hash_cache, sizeof(old_cache));
-	callsign_hash_cache_init();
+	callsign_hash_cache_init_unlocked();
 
 	for (int idx = 0; idx < CALLSIGN_HASH_CACHE_SIZE; ++idx)
 	{
@@ -487,15 +544,18 @@ static void callsign_hash_cache_cleanup(uint8_t max_age)
 			if (age <= max_age)
 			{
 				uint32_t stored_hash = (((uint32_t)age + 1u) << 24) | (old_cache[idx].hash & 0x3FFFFFu);
-				callsign_hash_cache_insert(old_cache[idx].callsign, stored_hash);
+				callsign_hash_cache_insert_unlocked(old_cache[idx].callsign, stored_hash);
 			}
 		}
 	}
+	pthread_mutex_unlock(&callsign_hash_cache_lock);
 }
 
 static void callsign_hash_cache_save(const char* callsign, uint32_t hash)
 {
-	callsign_hash_cache_insert(callsign, hash & 0x3FFFFFu);
+	pthread_mutex_lock(&callsign_hash_cache_lock);
+	callsign_hash_cache_insert_unlocked(callsign, hash & 0x3FFFFFu);
+	pthread_mutex_unlock(&callsign_hash_cache_lock);
 }
 
 static bool callsign_hash_cache_lookup(ftx_callsign_hash_type_t hash_type, uint32_t hash, char* callsign)
@@ -503,6 +563,9 @@ static bool callsign_hash_cache_lookup(ftx_callsign_hash_type_t hash_type, uint3
 	uint8_t hash_shift = (hash_type == FTX_CALLSIGN_HASH_10_BITS) ? 12 : (hash_type == FTX_CALLSIGN_HASH_12_BITS ? 10 : 0);
 	uint16_t hash10 = (hash >> (12 - hash_shift)) & 0x3FFu;
 	int idx_hash = (hash10 * 23) % CALLSIGN_HASH_CACHE_SIZE;
+	bool found = false;
+
+	pthread_mutex_lock(&callsign_hash_cache_lock);
 
 	for (int probes = 0; probes < CALLSIGN_HASH_CACHE_SIZE; ++probes)
 	{
@@ -512,14 +575,18 @@ static bool callsign_hash_cache_lookup(ftx_callsign_hash_type_t hash_type, uint3
 		if (((callsign_hash_cache[idx_hash].hash & 0x3FFFFFu) >> hash_shift) == hash)
 		{
 			copy_text(callsign, 12, callsign_hash_cache[idx_hash].callsign);
-			return true;
+			found = true;
+			break;
 		}
 
 		idx_hash = (idx_hash + 1) % CALLSIGN_HASH_CACHE_SIZE;
 	}
 
-	callsign[0] = '\0';
-	return false;
+	if (!found)
+		callsign[0] = '\0';
+
+	pthread_mutex_unlock(&callsign_hash_cache_lock);
+	return found;
 }
 
 static ftx_callsign_hash_interface_t callsign_hash_if = {
@@ -539,7 +606,7 @@ static int round_to_int(float value)
 
 static int gcft8_estimate_snr(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, const ftx_message_t* message)
 {
-	uint8_t tones[FT4_NN];
+	uint8_t tones[FT2_NN];
 	int num_symbols;
 	int num_tones;
 	float signal_power = 0.0f;
@@ -547,7 +614,13 @@ static int gcft8_estimate_snr(const ftx_waterfall_t* wf, const ftx_candidate_t* 
 	int signal_count = 0;
 	int noise_count = 0;
 
-	if (wf->protocol == FTX_PROTOCOL_FT4)
+	if (wf->protocol == FTX_PROTOCOL_FT2)
+	{
+		num_symbols = FT2_NN;
+		num_tones = 4;
+		ft2_encode(message->payload, tones);
+	}
+	else if (wf->protocol == FTX_PROTOCOL_FT4)
 	{
 		num_symbols = FT4_NN;
 		num_tones = 4;
@@ -760,6 +833,27 @@ bool wait_for_slot_start(float slot_time){
 	}
 
 	return false;
+}
+
+static bool wait_for_tx_slot_start(float slot_time, float late_grace)
+{
+	double slot = slot_time;
+	double grace = late_grace;
+	double current_time;
+	double slot_start;
+	double since_slot_start;
+
+	if (slot <= 0.0)
+		return !gcft8_shutdown_requested();
+
+	current_time = now();
+	slot_start = floor(current_time / slot) * slot;
+	since_slot_start = current_time - slot_start;
+
+	if ((grace > 0.0) && (since_slot_start >= 0.0) && (since_slot_start <= grace))
+		return !gcft8_shutdown_requested();
+
+	return wait_for_slot_start(slot_time);
 }
 
 void printDateTime_log(){
@@ -1150,95 +1244,6 @@ static bool playback_prepare_for_tx(void)
 	return true;
 }
 
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//FT8_lib encode
-
-#define GFSK_CONST_K 5.336446f ///< == pi * sqrt(2 / log(2))
-
-/// Computes a GFSK smoothing pulse.
-/// The pulse is theoretically infinitely long, however, here it's truncated at 3 times the symbol length.
-/// This means the pulse array has to have space for 3*n_spsym elements.
-/// @param[in] n_spsym Number of samples per symbol
-/// @param[in] b Shape parameter (values defined for FT8/FT4)
-/// @param[out] pulse Output array of pulse samples
-///
-void gfsk_pulse(int n_spsym, float symbol_bt, float* pulse)
-{
-    for (int i = 0; i < 3 * n_spsym; ++i)
-    {
-        float t = i / (float)n_spsym - 1.5f;
-        float arg1 = GFSK_CONST_K * symbol_bt * (t + 0.5f);
-        float arg2 = GFSK_CONST_K * symbol_bt * (t - 0.5f);
-        pulse[i] = (erff(arg1) - erff(arg2)) / 2;
-    }
-}
-
-/// Synthesize waveform data using GFSK phase shaping.
-/// The output waveform will contain n_sym symbols.
-/// @param[in] symbols Array of symbols (tones) (0-7 for FT8)
-/// @param[in] n_sym Number of symbols in the symbol array
-/// @param[in] f0 Audio frequency in Hertz for the symbol 0 (base frequency)
-/// @param[in] symbol_bt Symbol smoothing filter bandwidth (2 for FT8, 1 for FT4)
-/// @param[in] symbol_period Symbol period (duration), seconds
-/// @param[in] signal_rate Sample rate of synthesized signal, Hertz
-/// @param[out] signal Output array of signal waveform samples (should have space for n_sym*n_spsym samples)
-///
-void synth_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol_bt, float symbol_period, int signal_rate, float* signal)
-{
-    int n_spsym = (int)(0.5f + signal_rate * symbol_period); // Samples per symbol
-    int n_wave = n_sym * n_spsym;                            // Number of output samples
-    float hmod = 1.0f;
-
-    //printf("n_spsym = %d\n", n_spsym);
-    // Compute the smoothed frequency waveform.
-    // Length = (nsym+2)*n_spsym samples, first and last symbols extended
-    float dphi_peak = 2 * M_PI * hmod / n_spsym;
-    float dphi[n_wave + 2 * n_spsym];
-
-    // Shift frequency up by f0
-    for (int i = 0; i < n_wave + 2 * n_spsym; ++i)
-    {
-        dphi[i] = 2 * M_PI * f0 / signal_rate;
-    }
-
-    float pulse[3 * n_spsym];
-    gfsk_pulse(n_spsym, symbol_bt, pulse);
-
-    for (int i = 0; i < n_sym; ++i)
-    {
-        int ib = i * n_spsym;
-        for (int j = 0; j < 3 * n_spsym; ++j)
-        {
-            dphi[j + ib] += dphi_peak * symbols[i] * pulse[j];
-        }
-    }
-
-    // Add dummy symbols at beginning and end with tone values equal to 1st and last symbol, respectively
-    for (int j = 0; j < 2 * n_spsym; ++j)
-    {
-        dphi[j] += dphi_peak * pulse[j + n_spsym] * symbols[0];
-        dphi[j + n_sym * n_spsym] += dphi_peak * pulse[j] * symbols[n_sym - 1];
-    }
-
-    // Calculate and insert the audio waveform
-    float phi = 0;
-    for (int k = 0; k < n_wave; ++k)
-    { // Don't include dummy symbols
-        signal[k] = sinf(phi);
-        phi = fmodf(phi + dphi[k + n_spsym], 2 * M_PI);
-    }
-
-    // Apply envelope shaping to the first and last symbols
-    int n_ramp = n_spsym / 8;
-    for (int i = 0; i < n_ramp; ++i)
-    {
-        float env = (1 - cosf(2 * M_PI * i / (2 * n_ramp))) / 2;
-        signal[i] *= env;
-        signal[n_wave - 1 - i] *= env;
-    }
-}
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2135,7 +2140,9 @@ void TX_FT8()
 
 				// Second, encode the binary message as a sequence of FSK tones
 				uint8_t tones[num_tones];
-				if (mode_cfg->protocol == FTX_PROTOCOL_FT4)
+				if (mode_cfg->protocol == FTX_PROTOCOL_FT2)
+					ft2_encode(tx_msg.payload, tones);
+				else if (mode_cfg->protocol == FTX_PROTOCOL_FT4)
 					ft4_encode(tx_msg.payload, tones);
 				else
 					ft8_encode(tx_msg.payload, tones);
@@ -2162,7 +2169,10 @@ void TX_FT8()
 					signal[i] = 0.0f;
 				}
 				
-				synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence);
+				if (mode_cfg->protocol == FTX_PROTOCOL_FT2)
+					synth_ft2_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence);
+				else
+					synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence);
 				
 				int16_t * raw_data = (int16_t*)malloc(num_total_samples*sizeof(int16_t)); // num_samples * numChannels * bitsPerSample / 8;
 				if (raw_data == NULL)
@@ -2190,7 +2200,7 @@ void TX_FT8()
 					continue;
 				}
 				
-				if (!wait_for_slot_start(slot_time))
+				if (!wait_for_tx_slot_start(slot_time, mode_cfg->tx_late_grace))
 				{
 					free(raw_data);
 					tranceiver_rtx(_RX_);
@@ -2425,7 +2435,7 @@ static void print_usage(const char* program_name, FILE* stream)
 		"\n"
 		"Options:\n"
 		"  --help                     Show this help and exit\n"
-		"  --mode <ft8|ft4>           Digital mode (default: ft8)\n"
+		"  --mode <ft8|ft4|ft2>       Digital mode (default: ft8)\n"
 		"  --sound-device <device>    ALSA capture and playback device, prefer plughw (default: default)\n"
 		"  --callsign <callsign>      Your callsign (default: F4JJJ)\n"
 		"  --locator <locator>        Your Maidenhead locator (default: JN38)\n"
@@ -2445,16 +2455,26 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  6  Minimum SNR\n"
 		"\n"
 		"Bands:\n"
-		"  Band       FT8 Hz    FT4 Hz\n",
+		"  Band       FT8 Hz    FT4 Hz    FT2 Hz\n",
 		program_name,
 		program_name);
 
 	for (size_t idx = 0; idx < sizeof(gcft8_band_frequencies) / sizeof(gcft8_band_frequencies[0]); ++idx)
 	{
+		char ft4_text[16];
+		char ft2_text[16];
+
 		if (gcft8_band_frequencies[idx].ft4_frequency_hz > 0)
-			fprintf(stream, "  %2sm  %8d  %8d\n", gcft8_band_frequencies[idx].band, gcft8_band_frequencies[idx].ft8_frequency_hz, gcft8_band_frequencies[idx].ft4_frequency_hz);
+			snprintf(ft4_text, sizeof(ft4_text), "%d", gcft8_band_frequencies[idx].ft4_frequency_hz);
 		else
-			fprintf(stream, "  %2sm  %8d       n/a\n", gcft8_band_frequencies[idx].band, gcft8_band_frequencies[idx].ft8_frequency_hz);
+			copy_text(ft4_text, sizeof(ft4_text), "n/a");
+
+		if (gcft8_band_frequencies[idx].ft2_frequency_hz > 0)
+			snprintf(ft2_text, sizeof(ft2_text), "%d", gcft8_band_frequencies[idx].ft2_frequency_hz);
+		else
+			copy_text(ft2_text, sizeof(ft2_text), "n/a");
+
+		fprintf(stream, "  %2sm  %8d  %8s  %8s\n", gcft8_band_frequencies[idx].band, gcft8_band_frequencies[idx].ft8_frequency_hz, ft4_text, ft2_text);
 	}
 
 	fprintf(stream,
@@ -2527,7 +2547,7 @@ int main (int argc, char *argv[])
 			case CLI_OPTION_MODE:
 				if (!gcft8_parse_mode(optarg, &gcft8_mode))
 				{
-					fprintf(stderr, "Invalid mode '%s'. Allowed modes: ft8, ft4.\n", optarg);
+					fprintf(stderr, "Invalid mode '%s'. Allowed modes: ft8, ft4, ft2.\n", optarg);
 					print_usage(argv[0], stderr);
 					exit(1);
 				}

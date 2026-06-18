@@ -6,7 +6,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <math.h>
-#include "hash.h"
+#include "hash_table.h"
 
  
 unsigned long hash_function(char* str) {

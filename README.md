@@ -1,6 +1,6 @@
 # gcFT8
 
-Automatic FT8/FT4 command-line QSO tool for ham radio use.
+Automatic FT8/FT4/FT2 command-line QSO tool for ham radio use.
 
 ## Logs
 
@@ -39,7 +39,7 @@ make
 
 ```text
 --help
---mode <ft8|ft4>
+--mode <ft8|ft4|ft2>
 --sound-device <device>
 --callsign <callsign>
 --locator <locator>

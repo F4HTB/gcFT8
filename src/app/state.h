@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <alsa/asoundlib.h>
 
-#include "common/monitor.h"
+#include "vendor/cssl/cssl.h"
 
 #define capture_sound_device_ENV (char*)"RTSPECCY_CAPTURE_DEVICE"
 #define playback_sound_device_ENV (char*)"RTSPECCY_PLAYBACK_DEVICE"

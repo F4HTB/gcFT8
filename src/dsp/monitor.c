@@ -1,8 +1,8 @@
 #include "monitor.h"
-#include <common/common.h>
+#include "util/math_constants.h"
 
 #define LOG_LEVEL LOG_WARN
-#include <ft8/debug.h>
+#include "protocol/ftx/debug.h"
 
 #include <stdlib.h>
 
@@ -10,6 +10,34 @@ static float hann_i(int i, int N)
 {
     float x = sinf((float)M_PI * i / N);
     return x * x;
+}
+
+static float protocol_slot_time(ftx_protocol_t protocol)
+{
+    switch (protocol)
+    {
+    case FTX_PROTOCOL_FT2:
+        return FT2_SLOT_TIME;
+    case FTX_PROTOCOL_FT4:
+        return FT4_SLOT_TIME;
+    case FTX_PROTOCOL_FT8:
+    default:
+        return FT8_SLOT_TIME;
+    }
+}
+
+static float protocol_symbol_period(ftx_protocol_t protocol)
+{
+    switch (protocol)
+    {
+    case FTX_PROTOCOL_FT2:
+        return FT2_SYMBOL_PERIOD;
+    case FTX_PROTOCOL_FT4:
+        return FT4_SYMBOL_PERIOD;
+    case FTX_PROTOCOL_FT8:
+    default:
+        return FT8_SYMBOL_PERIOD;
+    }
 }
 
 // static float hamming_i(int i, int N)
@@ -54,8 +82,8 @@ static void waterfall_free(ftx_waterfall_t* me)
 
 void monitor_init(monitor_t* me, const monitor_config_t* cfg)
 {
-    float slot_time = (cfg->protocol == FTX_PROTOCOL_FT4) ? FT4_SLOT_TIME : FT8_SLOT_TIME;
-    float symbol_period = (cfg->protocol == FTX_PROTOCOL_FT4) ? FT4_SYMBOL_PERIOD : FT8_SYMBOL_PERIOD;
+    float slot_time = protocol_slot_time(cfg->protocol);
+    float symbol_period = protocol_symbol_period(cfg->protocol);
     // Compute DSP parameters that depend on the sample rate
     me->block_size = (int)(cfg->sample_rate * symbol_period); // samples corresponding to one FSK symbol
     me->subblock_size = me->block_size / cfg->time_osr;
@@ -97,7 +125,7 @@ void monitor_init(monitor_t* me, const monitor_config_t* cfg)
     LOG(LOG_DEBUG, "iFFT work area = %zu\n", ifft_work_size);
 #endif
 
-    // Allocate enough blocks to fit the entire FT8/FT4 slot in memory
+    // Allocate enough blocks to fit the entire FT2/FT4/FT8 slot in memory
     const int max_blocks = (int)(slot_time / symbol_period);
     // Keep only FFT bins in the specified frequency range (f_min/f_max)
     me->min_bin = (int)(cfg->f_min * symbol_period);
@@ -197,7 +225,7 @@ void monitor_resynth(const monitor_t* me, const ftx_candidate_t* candidate, floa
     const int num_ifft = me->nifft;
     const int num_shift = num_ifft / 2;
     const int taper_width = 4;
-    const int num_tones = 8;
+    const int num_tones = (me->wf.protocol == FTX_PROTOCOL_FT8) ? 8 : 4;
 
     // Starting offset is 3 subblocks due to analysis buffer loading
     int offset = 1;                          // candidate->time_offset;
