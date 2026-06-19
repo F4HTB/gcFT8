@@ -60,8 +60,11 @@
 #define FT8_TX_TAIL_SILENCE_SEC 0.1f
 #define FT4_TX_LEAD_SILENCE_SEC 0.3f
 #define FT4_TX_TAIL_SILENCE_SEC 0.1f
-#define FT2_TX_LEAD_SILENCE_SEC 0.1f
+#define FT2_TX_LEAD_SILENCE_SEC 0.15f
 #define FT2_TX_TAIL_SILENCE_SEC 0.1f
+#define FT8_RX_DT_OFFSET_SEC 0.5f
+#define FT4_RX_DT_OFFSET_SEC 0.5f
+#define FT2_RX_DT_OFFSET_SEC 0.5f
 #define FT2_RX_CAPTURE_MARGIN_SEC 0.1f
 #define FT2_TX_LATE_GRACE_SEC 0.5f
 
@@ -92,6 +95,7 @@ typedef struct
 	float tx_lead_silence;
 	float tx_tail_silence;
 	float rx_capture_time;
+	float rx_dt_offset;
 	float tx_late_grace;
 } gcft8_mode_config_t;
 
@@ -236,6 +240,7 @@ static const gcft8_mode_config_t gcft8_mode_configs[] = {
 		.tx_lead_silence = FT8_TX_LEAD_SILENCE_SEC,
 		.tx_tail_silence = FT8_TX_TAIL_SILENCE_SEC,
 		.rx_capture_time = 13.6f,
+		.rx_dt_offset = FT8_RX_DT_OFFSET_SEC,
 		.tx_late_grace = 0.0f
 	},
 	{
@@ -249,6 +254,7 @@ static const gcft8_mode_config_t gcft8_mode_configs[] = {
 		.tx_lead_silence = FT4_TX_LEAD_SILENCE_SEC,
 		.tx_tail_silence = FT4_TX_TAIL_SILENCE_SEC,
 		.rx_capture_time = FT4_SLOT_TIME - 0.4f,
+		.rx_dt_offset = FT4_RX_DT_OFFSET_SEC,
 		.tx_late_grace = 0.0f
 	},
 	{
@@ -262,6 +268,7 @@ static const gcft8_mode_config_t gcft8_mode_configs[] = {
 		.tx_lead_silence = FT2_TX_LEAD_SILENCE_SEC,
 		.tx_tail_silence = FT2_TX_TAIL_SILENCE_SEC,
 		.rx_capture_time = FT2_SLOT_TIME - FT2_RX_CAPTURE_MARGIN_SEC,
+		.rx_dt_offset = FT2_RX_DT_OFFSET_SEC,
 		.tx_late_grace = FT2_TX_LATE_GRACE_SEC
 	}
 };
@@ -1922,28 +1929,51 @@ static void advance_cursor(float slot_time) {
   pos = (pos+1) % 4;
 }
 
-static bool wait_for_slot_start(float slot_time){
+static bool wait_for_slot_start(float slot_time)
+{
 	double slot = slot_time;
-	double target_time;
+	struct timeval wall_now;
+	struct timespec mono_now;
+	struct timespec mono_target;
+	double wall_time;
+	double target_wall_time;
+	double wait_time;
+	time_t wait_sec;
+	long wait_nsec;
 
 	if (slot <= 0.0)
 		return !gcft8_shutdown_requested();
 
-	target_time = (floor(now() / slot) + 1.0) * slot;
+	gettimeofday(&wall_now, NULL);
+	wall_time = wall_now.tv_sec + wall_now.tv_usec / 1000000.0;
+	target_wall_time = (floor(wall_time / slot) + 1.0) * slot;
+	wait_time = target_wall_time - wall_time;
+
+	if (wait_time <= 0.0)
+		return true;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &mono_now) != 0)
+		return false;
+
+	wait_sec = (time_t)wait_time;
+	wait_nsec = (long)((wait_time - (double)wait_sec) * 1000000000.0);
+
+	mono_target = mono_now;
+	mono_target.tv_sec += wait_sec;
+	mono_target.tv_nsec += wait_nsec;
+	if (mono_target.tv_nsec >= 1000000000L)
+	{
+		++mono_target.tv_sec;
+		mono_target.tv_nsec -= 1000000000L;
+	}
 
 	while (!gcft8_shutdown_requested())
 	{
-		double wait_time = target_time - now();
-		useconds_t sleep_time;
-
-		if (wait_time <= 0.0)
+		int rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &mono_target, NULL);
+		if (rc == 0)
 			return true;
-
-		sleep_time = (useconds_t)(wait_time * 1000000.0);
-		if (sleep_time > 100000)
-			sleep_time = 100000;
-
-		usleep(sleep_time);
+		if (rc != EINTR)
+			return false;
 	}
 
 	return false;
@@ -2507,7 +2537,7 @@ static void RX_FT8()
 					continue;
 
 				float freq_hz = (mon->min_bin + cand->freq_offset + (float)cand->freq_sub / mon->wf.freq_osr) / mon->symbol_period;
-				float time_sec = (cand->time_offset + (float)cand->time_sub / mon->wf.time_osr) * mon->symbol_period;
+				float time_sec = ((cand->time_offset + (float)cand->time_sub / mon->wf.time_osr) * mon->symbol_period) - mode_cfg->rx_dt_offset;
 
 				ftx_message_t message;
 				ftx_decode_status_t status;
