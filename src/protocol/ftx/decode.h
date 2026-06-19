@@ -69,17 +69,16 @@ typedef struct
     uint16_t crc_calculated; ///< CRC value calculated over the payload
 } ftx_decode_status_t;
 
-/// Localize top N candidates in frequency and time according to their sync strength (looking at Costas symbols)
+/// Localize top N candidates in frequency and time according to their Costas sync strength.
 /// We treat and organize the candidate list as a min-heap (empty initially).
 /// @param[in] power Waterfall data collected during message slot
-/// @param[in] sync_pattern Synchronization pattern
 /// @param[in] num_candidates Number of maximum candidates (size of heap array)
 /// @param[in,out] heap Array of ftx_candidate_t type entries (with num_candidates allocated entries)
 /// @param[in] min_score Minimal score allowed for pruning unlikely candidates (can be zero for no effect)
 /// @return Number of candidates filled in the heap
 int ftx_find_candidates(const ftx_waterfall_t* power, int num_candidates, ftx_candidate_t heap[], int min_score);
 
-/// Attempt to decode a message candidate. Extracts the bit probabilities, runs LDPC decoder, checks CRC and unpacks the message in plain text.
+/// Attempt to decode a message candidate into a raw FTx payload. Text/field unpacking is handled by ftx_message_decode().
 /// @param[in] power Waterfall data collected during message slot
 /// @param[in] cand Candidate to decode
 /// @param[in] max_iterations Maximum allowed LDPC iterations (lower number means faster decode, but less precise)

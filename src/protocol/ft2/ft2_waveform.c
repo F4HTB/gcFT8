@@ -1,25 +1,41 @@
 #include "protocol/ft2/ft2_waveform.h"
 
-#include "dsp/gfsk.h"
 #include "util/math_constants.h"
 
 #include <math.h>
 
-void synth_ft2_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol_bt, float symbol_period, int signal_rate, float* signal)
+bool synth_ft2_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol_bt, float symbol_period, int signal_rate, float* signal, gfsk_scratch_t* scratch)
 {
-    if (n_sym < 3)
-    {
-        synth_gfsk(symbols, n_sym, f0, symbol_bt, symbol_period, signal_rate, signal);
-        return;
-    }
-
-    int n_spsym = (int)(0.5f + signal_rate * symbol_period);
-    int n_wave = n_sym * n_spsym;
-    int n_payload_sym = n_sym - 2;
+    int n_spsym;
+    int n_wave;
+    int n_payload_sym;
+    size_t dphi_len;
+    size_t pulse_len;
+    float* dphi;
+    float* pulse;
     float hmod = 1.0f;
-    float dphi_peak = 2 * M_PI * hmod / n_spsym;
-    float dphi[n_wave];
-    float pulse[3 * n_spsym];
+    float dphi_peak;
+
+    if (n_sym < 3)
+        return synth_gfsk(symbols, n_sym, f0, symbol_bt, symbol_period, signal_rate, signal, scratch);
+
+    if ((symbols == NULL) || (signal == NULL) || (scratch == NULL) || (symbol_period <= 0.0f) || (signal_rate <= 0))
+        return false;
+
+    n_spsym = (int)(0.5f + signal_rate * symbol_period);
+    if (n_spsym <= 0)
+        return false;
+
+    n_wave = n_sym * n_spsym;
+    n_payload_sym = n_sym - 2;
+    dphi_len = (size_t)n_wave;
+    pulse_len = 3u * (size_t)n_spsym;
+    if (!gfsk_scratch_ensure(scratch, dphi_len, pulse_len))
+        return false;
+
+    dphi = scratch->dphi;
+    pulse = scratch->pulse;
+    dphi_peak = 2 * M_PI * hmod / n_spsym;
 
     for (int i = 0; i < n_wave; ++i)
     {
@@ -52,4 +68,6 @@ void synth_ft2_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol_bt
         signal[i] *= env_up;
         signal[((n_sym - 1) * n_spsym) + i] *= env_down;
     }
+
+    return true;
 }

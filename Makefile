@@ -1,9 +1,9 @@
 CPPFLAGS ?= -Isrc
 CFLAGS ?= -std=c99 -O3 -march=native -D_GNU_SOURCE
-DEBUG_CFLAGS ?= -std=c99 -O0 -ggdb3 -fsanitize=address -march=native -D_GNU_SOURCE -DDEBUG=1 -Wall -Wextra -Wformat=2 -Wshadow
+DEBUG_CFLAGS ?= -std=c99 -O0 -ggdb3 -fsanitize=address -march=native -D_GNU_SOURCE -DDEBUG=1 -Wall -Wextra -Wformat=2 -Wshadow -Wvla -fstack-usage
 LDFLAGS ?=
 DEBUG_LDFLAGS ?= -fsanitize=address
-LDLIBS += -lm -lasound -lfftw3 -lfftw3_threads -pthread
+LDLIBS += -lm -lasound -pthread
 
 TARGET = gcFT8
 DEBUG_TARGET = gcFT8-debug
@@ -22,6 +22,7 @@ SRCS = \
 	src/vendor/kissfft/kiss_fft.c \
 	src/protocol/ftx/decode.c \
 	src/protocol/ftx/message.c \
+	src/protocol/ftx/encode_4tone.c \
 	src/protocol/ftx/encode.c \
 	src/protocol/ftx/crc.c \
 	src/protocol/ftx/ldpc.c \
@@ -57,5 +58,5 @@ clean:
 	rm -rf build *.o ft8/*.o common/*.o fft/*.o serial/*.o hash/*.o $(TARGET) $(DEBUG_TARGET) libftx.a
 
 install: all
-	$(AR) rc libftx.a $(RELEASE_OBJDIR)/protocol/ftx/constants.o $(RELEASE_OBJDIR)/protocol/ftx/encode.o $(RELEASE_OBJDIR)/protocol/ft8/ft8_encode.o $(RELEASE_OBJDIR)/protocol/ft4/ft4_encode.o $(RELEASE_OBJDIR)/protocol/ft2/ft2_encode.o $(RELEASE_OBJDIR)/protocol/ftx/message.o $(RELEASE_OBJDIR)/protocol/ftx/text.o
+	$(AR) rc libftx.a $(RELEASE_OBJDIR)/protocol/ftx/constants.o $(RELEASE_OBJDIR)/protocol/ftx/encode.o $(RELEASE_OBJDIR)/protocol/ftx/encode_4tone.o $(RELEASE_OBJDIR)/protocol/ft8/ft8_encode.o $(RELEASE_OBJDIR)/protocol/ft4/ft4_encode.o $(RELEASE_OBJDIR)/protocol/ft2/ft2_encode.o $(RELEASE_OBJDIR)/protocol/ftx/message.o $(RELEASE_OBJDIR)/protocol/ftx/text.o
 	install libftx.a /usr/lib/libftx.a

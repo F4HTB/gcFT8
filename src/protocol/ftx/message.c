@@ -43,7 +43,8 @@ static bool pack58(const ftx_callsign_hash_interface_t* hash_if, const char* cal
 /// Unpack a non-standard base call from a 58-bit integer.
 static bool unpack58(uint64_t n58, const ftx_callsign_hash_interface_t* hash_if, char* callsign);
 
-static uint16_t packgrid(const char* grid4);
+static bool parse_report(const char* text, bool* has_r, int* report);
+static bool packgrid(const char* grid4, uint16_t* igrid4_out);
 static int unpackgrid(uint16_t igrid4, uint8_t ir, char* extra, ftx_field_t* extra_field_type);
 
 /////////////////////////////////////////////////////////// Exported functions /////////////////////////////////////////////////////////////////
@@ -189,10 +190,15 @@ ftx_message_rc_t ftx_message_encode(ftx_message_t* msg, ftx_callsign_hash_interf
         if (rc == FTX_MESSAGE_RC_OK)
             return rc;
         LOG(LOG_DEBUG, "   ftx_message_encode_std failed: %d\n", rc);
-        rc = ftx_message_encode_nonstd(msg, hash_if, call_to, call_de, extra);
-        if (rc == FTX_MESSAGE_RC_OK)
+        if ((rc != FTX_MESSAGE_RC_ERROR_CALLSIGN1) && (rc != FTX_MESSAGE_RC_ERROR_CALLSIGN2) && (rc != FTX_MESSAGE_RC_ERROR_GRID))
             return rc;
-        LOG(LOG_DEBUG, "   ftx_message_encode_nonstd failed: %d\n", rc);
+        if ((rc == FTX_MESSAGE_RC_ERROR_CALLSIGN1) || (rc == FTX_MESSAGE_RC_ERROR_CALLSIGN2))
+        {
+            rc = ftx_message_encode_nonstd(msg, hash_if, call_to, call_de, extra);
+            if (rc == FTX_MESSAGE_RC_OK)
+                return rc;
+            LOG(LOG_DEBUG, "   ftx_message_encode_nonstd failed: %d\n", rc);
+        }
     }
     rc = ftx_message_encode_free(msg, message_text);
     if (rc == FTX_MESSAGE_RC_OK)
@@ -234,7 +240,9 @@ ftx_message_rc_t ftx_message_encode_std(ftx_message_t* msg, ftx_callsign_hash_in
         return FTX_MESSAGE_RC_ERROR_CALLSIGN2; // nonstandard call: need a type 4 message
     }
 
-    uint16_t igrid4 = packgrid(extra);
+    uint16_t igrid4;
+    if (!packgrid(extra, &igrid4))
+        return FTX_MESSAGE_RC_ERROR_GRID;
     LOG(LOG_DEBUG, "igrid4 = %d\n", igrid4);
 
     // Shift in ipa and ipb bits into n28a and n28b
@@ -291,7 +299,7 @@ ftx_message_rc_t ftx_message_encode_nonstd(ftx_message_t* msg, ftx_callsign_hash
     {
         // choose which of the callsigns to encode as plain-text (58 bits) or hash (12 bits)
         iflip = 0; // call_de will be sent plain-text
-        if (call_de[0] == '<' && call_de[len_call_to - 1] == '>')
+        if (call_de[0] == '<' && call_de[len_call_de - 1] == '>')
         {
             iflip = 1;
         }
@@ -317,7 +325,7 @@ ftx_message_rc_t ftx_message_encode_nonstd(ftx_message_t* msg, ftx_callsign_hash
         return FTX_MESSAGE_RC_ERROR_CALLSIGN2;
     }
 
-    if (icq != 0)
+    if ((icq != 0) || (extra[0] == '\0'))
         nrpt = 0;
     else if (equals(extra, "RRR"))
         nrpt = 1;
@@ -326,7 +334,7 @@ ftx_message_rc_t ftx_message_encode_nonstd(ftx_message_t* msg, ftx_callsign_hash
     else if (equals(extra, "73"))
         nrpt = 3;
     else
-        nrpt = 0;
+        return FTX_MESSAGE_RC_ERROR_GRID;
 
     // Pack into 12 + 58 + 1 + 2 + 1 + 3 == 77 bits
     // write(c77,1010) n12,n58,iflip,nrpt,icq,i3
@@ -1118,50 +1126,99 @@ static bool unpack58(uint64_t n58, const ftx_callsign_hash_interface_t* hash_if,
     return false;
 }
 
-static uint16_t packgrid(const char* grid4)
+static bool parse_report(const char* text, bool* has_r, int* report)
 {
+    const char* digits;
+    int sign = 1;
+
+    if ((text == NULL) || (has_r == NULL) || (report == NULL))
+        return false;
+
+    *has_r = false;
+    if (text[0] == 'R')
+    {
+        *has_r = true;
+        digits = text + 1;
+    }
+    else
+    {
+        digits = text;
+    }
+
+    if (digits[0] == '-')
+        sign = -1;
+    else if (digits[0] != '+')
+        return false;
+
+    if (!is_digit(digits[1]) || !is_digit(digits[2]) || (digits[3] != '\0'))
+        return false;
+
+    *report = sign * (((digits[1] - '0') * 10) + (digits[2] - '0'));
+    return true;
+}
+
+static bool packgrid(const char* grid4, uint16_t* igrid4_out)
+{
+    bool has_r;
+    int report;
+
+    if (igrid4_out == NULL)
+        return false;
+
     if (grid4 == 0 || grid4[0] == '\0')
     {
         // Two callsigns only, no report/grid
-        return MAXGRID4 + 1;
+        *igrid4_out = MAXGRID4 + 1;
+        return true;
     }
 
     // Take care of special cases
     if (equals(grid4, "RRR"))
-        return MAXGRID4 + 2;
+    {
+        *igrid4_out = MAXGRID4 + 2;
+        return true;
+    }
     if (equals(grid4, "RR73"))
-        return MAXGRID4 + 3;
+    {
+        *igrid4_out = MAXGRID4 + 3;
+        return true;
+    }
     if (equals(grid4, "73"))
-        return MAXGRID4 + 4;
+    {
+        *igrid4_out = MAXGRID4 + 4;
+        return true;
+    }
 
     // TODO: Check for "R " prefix before a 4 letter grid
 
     // Check for standard 4 letter grid
-    if (in_range(grid4[0], 'A', 'R') && in_range(grid4[1], 'A', 'R') && is_digit(grid4[2]) && is_digit(grid4[3]))
+    if (in_range(grid4[0], 'A', 'R') && in_range(grid4[1], 'A', 'R') && is_digit(grid4[2]) && is_digit(grid4[3]) && (grid4[4] == '\0'))
     {
         uint16_t igrid4 = (grid4[0] - 'A');
         igrid4 = igrid4 * 18 + (grid4[1] - 'A');
         igrid4 = igrid4 * 10 + (grid4[2] - '0');
         igrid4 = igrid4 * 10 + (grid4[3] - '0');
-        return igrid4;
+        *igrid4_out = igrid4;
+        return true;
     }
 
     // Parse report: +dd / -dd / R+dd / R-dd
-    // TODO: check the range of dd
-    if (grid4[0] == 'R')
+    if (parse_report(grid4, &has_r, &report))
     {
-        int dd = dd_to_int(grid4 + 1, 3);
-        uint16_t irpt = 35 + dd;
-        return (MAXGRID4 + irpt) | 0x8000; // ir = 1
-    }
-    else
-    {
-        int dd = dd_to_int(grid4, 3);
-        uint16_t irpt = 35 + dd;
-        return (MAXGRID4 + irpt); // ir = 0
+        if ((report < -50) || (report > 50))
+            return false;
+
+        if (report < -30)
+            report += 101;
+
+        uint16_t irpt = (uint16_t)(35 + report);
+        *igrid4_out = MAXGRID4 + irpt;
+        if (has_r)
+            *igrid4_out |= 0x8000; // ir = 1
+        return true;
     }
 
-    return MAXGRID4 + 1;
+    return false;
 }
 
 static int unpackgrid(uint16_t igrid4, uint8_t ir, char* extra, ftx_field_t* extra_field_type)
@@ -1215,9 +1272,12 @@ static int unpackgrid(uint16_t igrid4, uint8_t ir, char* extra, ftx_field_t* ext
             break;
         default:
             // Extract signal report as a two digit number with a + or - sign
+            int report = irpt - 35;
+            if (report > 50)
+                report -= 101;
             if (ir > 0)
                 *dst++ = 'R'; // Add "R" before report
-            int_to_dd(dst, irpt - 35, 2, true);
+            int_to_dd(dst, report, 2, true);
             *extra_field_type = FTX_FIELD_RST;
             break;
         }

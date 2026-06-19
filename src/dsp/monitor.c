@@ -5,6 +5,7 @@
 #include "protocol/ftx/debug.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 static float hann_i(int i, int N)
 {
@@ -101,6 +102,8 @@ void monitor_init(monitor_t* me, const monitor_config_t* cfg)
         // me->window[i] = (i < len_window) ? hann_i(i, len_window) : 0;
     }
     me->last_frame = (float*)calloc(me->nfft, sizeof(me->last_frame[0]));
+    me->timedata = (kiss_fft_scalar*)malloc((size_t)me->nfft * sizeof(me->timedata[0]));
+    me->freqdata = (kiss_fft_cpx*)malloc(((size_t)me->nfft / 2u + 1u) * sizeof(me->freqdata[0]));
 
     LOG(LOG_INFO, "Block size = %d\n", me->block_size);
     LOG(LOG_INFO, "Subblock size = %d\n", me->subblock_size);
@@ -144,6 +147,8 @@ void monitor_free(monitor_t* me)
 {
     waterfall_free(&me->wf);
     free(me->fft_work);
+    free(me->freqdata);
+    free(me->timedata);
     free(me->last_frame);
     free(me->window);
 }
@@ -152,6 +157,7 @@ void monitor_reset(monitor_t* me)
 {
     me->wf.num_blocks = 0;
     me->max_mag = -120.0f;
+    memset(me->last_frame, 0, (size_t)me->nfft * sizeof(me->last_frame[0]));
 }
 
 // Compute FFT magnitudes (log wf) for a frame in the signal and update waterfall data
@@ -167,8 +173,8 @@ void monitor_process(monitor_t* me, const float* frame)
     // Loop over block subdivisions
     for (int time_sub = 0; time_sub < me->wf.time_osr; ++time_sub)
     {
-        kiss_fft_scalar timedata[me->nfft];
-        kiss_fft_cpx freqdata[me->nfft / 2 + 1];
+        kiss_fft_scalar* timedata = me->timedata;
+        kiss_fft_cpx* freqdata = me->freqdata;
 
         // Shift the new data into analysis frame
         for (int pos = 0; pos < me->nfft - me->subblock_size; ++pos)

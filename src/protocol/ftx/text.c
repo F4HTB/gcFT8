@@ -14,11 +14,16 @@ const char* trim_front(const char* str, char to_trim)
 
 void trim_back(char* str, char to_trim)
 {
+    size_t len;
+
+    if (str == NULL)
+        return;
+
     // Skip trailing to_trim characters by replacing them with '\0' characters
-    int idx = strlen(str) - 1;
-    while (idx >= 0 && str[idx] == to_trim)
+    len = strlen(str);
+    while ((len > 0) && (str[len - 1] == to_trim))
     {
-        str[idx--] = '\0';
+        str[--len] = '\0';
     }
 }
 
@@ -40,14 +45,25 @@ char* trim_brackets(char* str)
 
 void trim_copy(char* trimmed, const char* str)
 {
-    str = (char*)trim_front(str, ' ');
-    int len = strlen(str) - 1;
-    while (len >= 0 && str[len] == ' ')
+    size_t len;
+
+    if (trimmed == NULL)
+        return;
+
+    if (str == NULL)
     {
-        len--;
+        trimmed[0] = '\0';
+        return;
     }
-    strncpy(trimmed, str, len + 1);
-    trimmed[len + 1] = '\0';
+
+    str = (char*)trim_front(str, ' ');
+    len = strlen(str);
+    while ((len > 0) && (str[len - 1] == ' '))
+    {
+        --len;
+    }
+    memcpy(trimmed, str, len);
+    trimmed[len] = '\0';
 }
 
 char to_upper(char c)
@@ -77,17 +93,28 @@ bool in_range(char c, char min, char max)
 
 bool starts_with(const char* string, const char* prefix)
 {
-    return 0 == memcmp(string, prefix, strlen(prefix));
+    size_t string_len;
+    size_t prefix_len;
+
+    if ((string == NULL) || (prefix == NULL))
+        return false;
+
+    string_len = strlen(string);
+    prefix_len = strlen(prefix);
+    return (string_len >= prefix_len) && (strncmp(string, prefix, prefix_len) == 0);
 }
 
 bool ends_with(const char* string, const char* suffix)
 {
-    int pos = strlen(string) - strlen(suffix);
-    if (pos >= 0)
-    {
-        return 0 == memcmp(string + pos, suffix, strlen(suffix));
-    }
-    return false;
+    size_t string_len;
+    size_t suffix_len;
+
+    if ((string == NULL) || (suffix == NULL))
+        return false;
+
+    string_len = strlen(string);
+    suffix_len = strlen(suffix);
+    return (string_len >= suffix_len) && (memcmp(string + string_len - suffix_len, suffix, suffix_len) == 0);
 }
 
 bool equals(const char* string1, const char* string2)

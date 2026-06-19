@@ -146,6 +146,34 @@ typedef struct
 	gcft8_display_class_t display_class;
 } gcft8_rx_candidate_t;
 
+typedef struct
+{
+	float* signal;
+	size_t signal_capacity;
+	int16_t* pcm;
+	size_t pcm_capacity;
+	gfsk_scratch_t gfsk_scratch;
+} gcft8_tx_context_t;
+
+typedef struct
+{
+	monitor_t monitor;
+	monitor_config_t config;
+	bool monitor_initialized;
+	float* signal;
+	size_t signal_capacity;
+	char* raw_data;
+	size_t raw_data_capacity;
+	ftx_candidate_t* candidate_list;
+	size_t candidate_capacity;
+	gcft8_rx_candidate_t* cq_candidates;
+	size_t cq_candidate_capacity;
+	ftx_message_t* decoded;
+	size_t decoded_capacity;
+	ftx_message_t** decoded_hashtable;
+	size_t decoded_hashtable_capacity;
+} gcft8_rx_context_t;
+
 static const gcft8_band_frequency_t gcft8_band_frequencies[] = {
 	{ "80",  3573000,  3575000,  3578000 },
 	{ "60",  5357000,  5357000,  5360000 },
@@ -224,11 +252,15 @@ static size_t gcft8_only_sp_tag_count;
 static gcft8_locator_zone_t gcft8_locator_zones[GCFT8_MAX_LOCATOR_ZONES];
 static size_t gcft8_locator_zone_count;
 static HashTable* ht_callsigntable_for_filter;
+static gcft8_tx_context_t gcft8_tx_context;
+static gcft8_rx_context_t gcft8_rx_context;
 
 static bool gcft8_snr_filter_rejects(int snr);
 static bool gcft8_prefix_filter_rejects(const char* callsign);
 static bool gcft8_locator_zone_filter_rejects(const char* locator);
-void printDateTime_log(void);
+static int get_seq_qso_to_rep(const char* mess, bool* flaglog);
+static void printDateTime_log(void);
+static void tranceiver_rtx(gcft8_trx_state_t ptt);
 
 static bool gcft8_shutdown_requested(void)
 {
@@ -314,7 +346,7 @@ static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, 
 		if (field2 != NULL)
 		{
 			copy_text(view->message, sizeof(view->message), field2->text);
-			if (field2->type == FTX_FIELD_GRID)
+			if ((field2->type == FTX_FIELD_GRID) && (strlen(field2->text) == 4))
 			{
 				copy_text(view->locator, sizeof(view->locator), field2->text);
 				view->has_locator = true;
@@ -470,6 +502,180 @@ static void gcft8_display_rx_candidate(const gcft8_rx_candidate_t* candidate)
 
 	printDateTime_log();
 	printf(" %d %3d %+4.2f %4.0f ~  %s%s%s\n", candidate->snr, candidate->score, candidate->time_sec, candidate->frequency_hz, color_start, candidate->decoded.text, color_end);
+}
+
+static bool gcft8_direct_response_index(const gcft8_decoded_message_view_t* view, int* response_index)
+{
+	bool flaglog = false;
+	int seq;
+
+	if ((view == NULL) || (response_index == NULL) || !view->is_for_local)
+		return false;
+
+	seq = get_seq_qso_to_rep(view->message, &flaglog);
+	if ((seq >= 0) || flaglog)
+	{
+		*response_index = -1;
+		return true;
+	}
+
+	if (view->has_locator)
+	{
+		*response_index = 1;
+		return true;
+	}
+
+	return false;
+}
+
+static bool gcft8_ensure_float_buffer(float** buffer, size_t* capacity, size_t required)
+{
+	float* resized;
+
+	if ((buffer == NULL) || (capacity == NULL))
+		return false;
+
+	if (required <= *capacity)
+		return true;
+
+	resized = (float*)realloc(*buffer, required * sizeof((*buffer)[0]));
+	if (resized == NULL)
+		return false;
+
+	*buffer = resized;
+	*capacity = required;
+	return true;
+}
+
+static bool gcft8_ensure_i16_buffer(int16_t** buffer, size_t* capacity, size_t required)
+{
+	int16_t* resized;
+
+	if ((buffer == NULL) || (capacity == NULL))
+		return false;
+
+	if (required <= *capacity)
+		return true;
+
+	resized = (int16_t*)realloc(*buffer, required * sizeof((*buffer)[0]));
+	if (resized == NULL)
+		return false;
+
+	*buffer = resized;
+	*capacity = required;
+	return true;
+}
+
+static bool gcft8_ensure_buffer(void** buffer, size_t* capacity, size_t required, size_t element_size)
+{
+	void* resized;
+
+	if ((buffer == NULL) || (capacity == NULL) || (element_size == 0))
+		return false;
+
+	if (required <= *capacity)
+		return true;
+
+	if (required > (SIZE_MAX / element_size))
+		return false;
+
+	resized = realloc(*buffer, required * element_size);
+	if (resized == NULL)
+		return false;
+
+	*buffer = resized;
+	*capacity = required;
+	return true;
+}
+
+static void gcft8_tx_context_init(gcft8_tx_context_t* ctx)
+{
+	if (ctx == NULL)
+		return;
+
+	memset(ctx, 0, sizeof(*ctx));
+	gfsk_scratch_init(&ctx->gfsk_scratch);
+}
+
+static bool gcft8_tx_context_ensure(gcft8_tx_context_t* ctx, size_t sample_count)
+{
+	if (ctx == NULL)
+		return false;
+
+	return gcft8_ensure_float_buffer(&ctx->signal, &ctx->signal_capacity, sample_count) &&
+		gcft8_ensure_i16_buffer(&ctx->pcm, &ctx->pcm_capacity, sample_count);
+}
+
+static void gcft8_tx_context_free(gcft8_tx_context_t* ctx)
+{
+	if (ctx == NULL)
+		return;
+
+	free(ctx->signal);
+	free(ctx->pcm);
+	gfsk_scratch_free(&ctx->gfsk_scratch);
+	gcft8_tx_context_init(ctx);
+}
+
+static void gcft8_rx_context_init(gcft8_rx_context_t* ctx)
+{
+	if (ctx == NULL)
+		return;
+
+	memset(ctx, 0, sizeof(*ctx));
+}
+
+static bool gcft8_monitor_config_equal(const monitor_config_t* a, const monitor_config_t* b)
+{
+	return (a != NULL) && (b != NULL) &&
+		(a->f_min == b->f_min) &&
+		(a->f_max == b->f_max) &&
+		(a->sample_rate == b->sample_rate) &&
+		(a->time_osr == b->time_osr) &&
+		(a->freq_osr == b->freq_osr) &&
+		(a->protocol == b->protocol);
+}
+
+static void gcft8_rx_context_free(gcft8_rx_context_t* ctx)
+{
+	if (ctx == NULL)
+		return;
+
+	if (ctx->monitor_initialized)
+		monitor_free(&ctx->monitor);
+	free(ctx->signal);
+	free(ctx->raw_data);
+	free(ctx->candidate_list);
+	free(ctx->cq_candidates);
+	free(ctx->decoded);
+	free(ctx->decoded_hashtable);
+	gcft8_rx_context_init(ctx);
+}
+
+static bool gcft8_rx_context_prepare(gcft8_rx_context_t* ctx, const monitor_config_t* config, int max_candidates, int max_decoded_messages)
+{
+	if ((ctx == NULL) || (config == NULL) || (max_candidates <= 0) || (max_decoded_messages <= 0))
+		return false;
+
+	if (ctx->monitor_initialized && !gcft8_monitor_config_equal(&ctx->config, config))
+	{
+		monitor_free(&ctx->monitor);
+		ctx->monitor_initialized = false;
+	}
+
+	if (!ctx->monitor_initialized)
+	{
+		monitor_init(&ctx->monitor, config);
+		ctx->config = *config;
+		ctx->monitor_initialized = true;
+	}
+
+	return gcft8_ensure_float_buffer(&ctx->signal, &ctx->signal_capacity, (size_t)ctx->monitor.block_size) &&
+		gcft8_ensure_buffer((void**)&ctx->raw_data, &ctx->raw_data_capacity, (size_t)ctx->monitor.block_size * 2u, sizeof(ctx->raw_data[0])) &&
+		gcft8_ensure_buffer((void**)&ctx->candidate_list, &ctx->candidate_capacity, (size_t)max_candidates, sizeof(ctx->candidate_list[0])) &&
+		gcft8_ensure_buffer((void**)&ctx->cq_candidates, &ctx->cq_candidate_capacity, (size_t)max_candidates, sizeof(ctx->cq_candidates[0])) &&
+		gcft8_ensure_buffer((void**)&ctx->decoded, &ctx->decoded_capacity, (size_t)max_decoded_messages, sizeof(ctx->decoded[0])) &&
+		gcft8_ensure_buffer((void**)&ctx->decoded_hashtable, &ctx->decoded_hashtable_capacity, (size_t)max_decoded_messages, sizeof(ctx->decoded_hashtable[0]));
 }
 
 static int grid_letter_index(char c)
@@ -1454,7 +1660,7 @@ FT8info FT8 = {
 	.QSO_RESPONSES = {{0}},
 	.QSO_Index_to_rep=-1,
 	
-	.TRX_status = _RX_,
+	.TRX_status = GCFT8_TRX_RX,
 	.TRX_status_lock = PTHREAD_MUTEX_INITIALIZER,
 	.RX_status_cond = PTHREAD_COND_INITIALIZER,
 	.TX_status_cond = PTHREAD_COND_INITIALIZER,
@@ -1511,7 +1717,7 @@ char *getenvDefault(char *name, char *def)
 }
 
 /* Get time now */
-double now()
+static double now()
 {
 	struct timeval tv;
 	gettimeofday(&tv, 0);
@@ -1527,7 +1733,7 @@ static void clear_status_line(void)
 	}
 }
 
-void advance_cursor(float slot_time) {
+static void advance_cursor(float slot_time) {
   static int pos=0;
   char cursor[4]={'/','-','\\','|'};
   double slot = slot_time;
@@ -1564,7 +1770,7 @@ void advance_cursor(float slot_time) {
   pos = (pos+1) % 4;
 }
 
-bool wait_for_slot_start(float slot_time){
+static bool wait_for_slot_start(float slot_time){
 	double slot = slot_time;
 	double target_time;
 
@@ -1612,7 +1818,7 @@ static bool wait_for_tx_slot_start(float slot_time, float late_grace)
 	return wait_for_slot_start(slot_time);
 }
 
-void printDateTime_log(){
+static void printDateTime_log(){
 	clear_status_line();
 	const gcft8_mode_config_t* mode_cfg = gcft8_current_mode_config();
 	long long slot_ms = (long long)(mode_cfg->slot_time * 1000.0f + 0.5f);
@@ -1661,13 +1867,7 @@ static void print_slot_separator(const gcft8_mode_config_t* mode_cfg, const char
 	printf(" --\033[0m\n");
 }
 
-void printDateTime(){
-	clear_status_line();
-	time_t t = time(NULL);	struct tm tm = *gmtime(&t);	int sec = (int)((int)tm.tm_sec);
-	printf("%d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, sec);
-}
-
-void printDateTime_ms(){
+static void printDateTime_ms(){
 	clear_status_line();
 	struct timeval tv;
 	gettimeofday(&tv, 0);
@@ -1676,7 +1876,7 @@ void printDateTime_ms(){
 	printf("%d-%02d-%02d %02d:%02d:%02d.%03ld", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, (long)(tv.tv_usec / 1000));
 }
 
-void latLonForGrid(char * grid, float * latlon) {
+static void latLonForGrid(char * grid, float * latlon) {
 	int lat_field;
 	int lon_field;
 	int lat_square;
@@ -1707,7 +1907,7 @@ void latLonForGrid(char * grid, float * latlon) {
 };
 
 
-float latLonDist(float * latlonA, float * latlonB){
+static float latLonDist(float * latlonA, float * latlonB){
 	double value = sin(latlonA[0] * M_PI / 180.0f) * sin(latlonB[0] * M_PI / 180.0f) + cos(latlonA[0] * M_PI / 180.0f) * cos(latlonB[0] * M_PI / 180.0f) * cos((latlonA[1] * M_PI / 180.0f) - (latlonB[1] * M_PI / 180.0f));
 	if (value > 1.0)
 		value = 1.0;
@@ -1723,7 +1923,7 @@ float latLonDist(float * latlonA, float * latlonB){
 
 
 /* Open and init the default recording device. */
-void capture_audioInit(void)
+static void capture_audioInit(void)
 { 
 	int err;
 	snd_pcm_hw_params_t *capture_hw_params;
@@ -1819,7 +2019,7 @@ void capture_audioInit(void)
 	
 }
 
-void capture_audioDeInit(void)
+static void capture_audioDeInit(void)
 { 
 	if (sound.capture_handle != NULL)
 	{
@@ -1830,7 +2030,7 @@ void capture_audioDeInit(void)
 }
 
 /* Open and init the default playback device. */
-void playback_audioInit(void)
+static void playback_audioInit(void)
 { 
 	int err;
 	snd_pcm_hw_params_t *playback_hw_params;
@@ -1978,7 +2178,7 @@ void playback_audioInit(void)
 	#endif
 }
 
-void playback_audioDeInit(void)
+static void playback_audioDeInit(void)
 { 
 	if (sound.playback_handle != NULL)
 	{
@@ -2004,7 +2204,7 @@ static bool playback_prepare_for_tx(void)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Thread FT8
-float getFrame(char *buffer, int i)
+static float getFrame(char *buffer, int i)
 {
 	uint16_t lo = (uint8_t)buffer[2 * i];
 	uint16_t hi = (uint8_t)buffer[(2 * i) + 1];
@@ -2012,29 +2212,29 @@ float getFrame(char *buffer, int i)
 	return sample / 32768.0f;
 }
 
-void unlock_TX_thread(){
+static void unlock_TX_thread(){
 	#if DEBUG
 	printf( "UnLock TX thread\n");
 	#endif
 	pthread_mutex_lock(&FT8.TRX_status_lock);
-	FT8.TRX_status = _TX_;
+	FT8.TRX_status = GCFT8_TRX_TX;
 	pthread_cond_signal(&FT8.TX_status_cond);
 	pthread_mutex_unlock(&FT8.TRX_status_lock);
 }
 
-void unlock_RX_thread(){
+static void unlock_RX_thread(){
 	#if DEBUG
 	printf( "UnLock RX thread\n");
 	#endif
 	pthread_mutex_lock(&FT8.TRX_status_lock);
-	FT8.TRX_status = _RX_;
+	FT8.TRX_status = GCFT8_TRX_RX;
 	pthread_cond_signal(&FT8.RX_status_cond);
 	pthread_mutex_unlock(&FT8.TRX_status_lock);
 }
 
 
 
-void RX_FT8()
+static void RX_FT8()
 {
 	const gcft8_mode_config_t* mode_cfg = gcft8_current_mode_config();
 	const int num_samples = (int)(mode_cfg->rx_capture_time * sound.capture_sound_rate);
@@ -2052,47 +2252,48 @@ void RX_FT8()
 		.protocol = mode_cfg->protocol
 	};
 	
+	if (!gcft8_rx_context_prepare(&gcft8_rx_context, &mon_cfg, kMax_candidates, kMax_decoded_messages))
+	{
+		fprintf(stderr, "Out of memory while preparing RX context\n");
+		exit(1);
+	}
+
 	snd_pcm_sframes_t rc;
 	
 	while(!gcft8_shutdown_requested()){
 		pthread_mutex_lock(&FT8.TRX_status_lock);
-		bool stat = FT8.TRX_status;
+		gcft8_trx_state_t stat = FT8.TRX_status;
 		pthread_mutex_unlock(&FT8.TRX_status_lock);
-		if(stat == _RX_){
-			// Compute FFT over the whole signal and store it
-			monitor_t mon;
-			monitor_init(&mon, &mon_cfg);
+		if(stat == GCFT8_TRX_RX){
+			monitor_t* mon = &gcft8_rx_context.monitor;
+			float* signal = gcft8_rx_context.signal;
+			char* raw_data = gcft8_rx_context.raw_data;
+			ftx_candidate_t* candidate_list = gcft8_rx_context.candidate_list;
+			gcft8_rx_candidate_t* cq_candidates = gcft8_rx_context.cq_candidates;
+			ftx_message_t* decoded = gcft8_rx_context.decoded;
+			ftx_message_t** decoded_hashtable = gcft8_rx_context.decoded_hashtable;
+
+			monitor_reset(mon);
 			
 			#if DEBUG
-			printf( "Waterfall allocated %d symbols\n", mon.wf.max_blocks);
+			printf( "Waterfall allocated %d symbols\n", mon->wf.max_blocks);
 			#endif
 
-			float signal[mon.block_size];
-			char *raw_data = (char *)malloc((size_t)mon.block_size * 2);
-			if (raw_data == NULL)
-			{
-				monitor_free(&mon);
-				fprintf(stderr, "Out of memory while allocating RX buffer\n");
-				exit(1);
-			}
-		
 			if (!wait_for_slot_start(mode_cfg->slot_time))
 			{
-				free(raw_data);
-				monitor_free(&mon);
 				break;
 			}
 			
 			snd_pcm_reset(sound.capture_handle);
 			
-			for (int frame_pos = 0; !gcft8_shutdown_requested() && frame_pos + mon.block_size <= num_samples; frame_pos += mon.block_size)
+			for (int frame_pos = 0; !gcft8_shutdown_requested() && frame_pos + mon->block_size <= num_samples; frame_pos += mon->block_size)
 			{
 				// Process the waveform data frame by frame - you could have a live loop here with data from an audio device
 
 				int frames_read = 0;
-				while (!gcft8_shutdown_requested() && frames_read < mon.block_size)
+				while (!gcft8_shutdown_requested() && frames_read < mon->block_size)
 				{
-					rc = snd_pcm_readi(sound.capture_handle, raw_data + (frames_read * 2), (snd_pcm_uframes_t)(mon.block_size - frames_read));
+					rc = snd_pcm_readi(sound.capture_handle, raw_data + (frames_read * 2), (snd_pcm_uframes_t)(mon->block_size - frames_read));
 					if (rc < 0)
 					{
 						rc = snd_pcm_recover(sound.capture_handle, (int)rc, 1);
@@ -2106,38 +2307,33 @@ void RX_FT8()
 					frames_read += (int)rc;
 				}
 
-				if (frames_read == mon.block_size)
+				if (frames_read == mon->block_size)
 				{
-					for (int i = 0; i < mon.block_size; i++)
+					for (int i = 0; i < mon->block_size; i++)
 					{
 						signal[i] = getFrame(raw_data,i);
 					}
 					
-					monitor_process(&mon, signal);
+					monitor_process(mon, signal);
 				}
 				
 			}
 			
 			#if DEBUG
-			printf( "Waterfall accumulated %d symbols\n", mon.wf.num_blocks);
-			printf( "Max magnitude: %.1f dB\n", mon.max_mag);
+			printf( "Waterfall accumulated %d symbols\n", mon->wf.num_blocks);
+			printf( "Max magnitude: %.1f dB\n", mon->max_mag);
 			#endif
 			
 			print_slot_separator(mode_cfg, "RX");
 
 			// Find top candidates by Costas sync score and localize them in time and frequency
-			ftx_candidate_t candidate_list[kMax_candidates];
-			int num_candidates = ftx_find_candidates(&mon.wf, kMax_candidates, candidate_list, kMin_score);
+			int num_candidates = ftx_find_candidates(&mon->wf, kMax_candidates, candidate_list, kMin_score);
 
-			gcft8_rx_candidate_t cq_candidates[kMax_candidates];
 			int cq_candidate_count = 0;
 			bool direct_message_selected = false;
 
 			// Hash table for decoded messages (to check for duplicates)
 			int num_decoded = 0;
-			ftx_message_t decoded[kMax_decoded_messages];
-			ftx_message_t* decoded_hashtable[kMax_decoded_messages];
-
 			// Initialize hash table pointers
 			for (int i = 0; i < kMax_decoded_messages; ++i)
 			{
@@ -2152,12 +2348,12 @@ void RX_FT8()
 				if (cand->score < kMin_score)
 					continue;
 
-				float freq_hz = (mon.min_bin + cand->freq_offset + (float)cand->freq_sub / mon.wf.freq_osr) / mon.symbol_period;
-				float time_sec = (cand->time_offset + (float)cand->time_sub / mon.wf.time_osr) * mon.symbol_period;
+				float freq_hz = (mon->min_bin + cand->freq_offset + (float)cand->freq_sub / mon->wf.freq_osr) / mon->symbol_period;
+				float time_sec = (cand->time_offset + (float)cand->time_sub / mon->wf.time_osr) * mon->symbol_period;
 
 				ftx_message_t message;
 				ftx_decode_status_t status;
-				if (!ftx_decode_candidate(&mon.wf, cand, kLDPC_iterations, &message, &status))
+				if (!ftx_decode_candidate(&mon->wf, cand, kLDPC_iterations, &message, &status))
 				{
 					// printf("000000 %3d %+4.2f %4.0f ~  ---\n", cand->score, time_sec, freq_hz);
 					#if DEBUG
@@ -2212,7 +2408,7 @@ void RX_FT8()
 				rx_candidate.frequency_hz = freq_hz;
 				rx_candidate.time_sec = time_sec;
 				rx_candidate.score = cand->score;
-				rx_candidate.snr = gcft8_estimate_snr(&mon.wf, cand, &message);
+				rx_candidate.snr = gcft8_estimate_snr(&mon->wf, cand, &message);
 				gcft8_analyze_decoded_message(&rx_candidate.decoded, FT8.Local_CALLSIGN, &rx_candidate.view);
 
 				if (rx_candidate.view.is_cq)
@@ -2222,7 +2418,8 @@ void RX_FT8()
 
 				if (rx_candidate.view.is_for_local)
 				{
-					if (!direct_message_selected)
+					int response_index = -1;
+					if (!direct_message_selected && gcft8_direct_response_index(&rx_candidate.view, &response_index))
 					{
 						direct_message_selected = true;
 						cq_candidate_count = 0;
@@ -2231,11 +2428,15 @@ void RX_FT8()
 						{
 							pthread_mutex_lock(&FT8.TRX_status_lock);
 
+							if (strcmp(FT8.QSO_dist_CALLSIGN, rx_candidate.view.from_call) != 0)
+								FT8.QSO_dist_LOCATOR[0] = '\0';
 							copy_text(FT8.QSO_dist_CALLSIGN, sizeof(FT8.QSO_dist_CALLSIGN), rx_candidate.view.from_call);
 							copy_text(FT8.QSO_dist_MESSAGE, sizeof(FT8.QSO_dist_MESSAGE), rx_candidate.view.message);
+							if (rx_candidate.view.has_locator)
+								copy_text(FT8.QSO_dist_LOCATOR, sizeof(FT8.QSO_dist_LOCATOR), rx_candidate.view.locator);
 							FT8.QSO_dist_FREQUENCY=freq_hz;
 							FT8.QSO_dist_SNR = rx_candidate.snr;
-							FT8.QSO_Index_to_rep = -1;
+							FT8.QSO_Index_to_rep = response_index;
 
 							pthread_mutex_unlock(&FT8.TRX_status_lock);
 
@@ -2339,15 +2540,12 @@ void RX_FT8()
 			printf( "Decoded %d messages\n", num_decoded);
 			#endif
 			callsign_hash_cache_cleanup(10);
-			
-			free(raw_data);
-			monitor_free(&mon);
 		
 		}
 		else{
 			// printf( "Lock RX thread\n");
 			pthread_mutex_lock(&FT8.TRX_status_lock);
-			while (!gcft8_shutdown_requested() && FT8.TRX_status != _RX_)
+			while (!gcft8_shutdown_requested() && FT8.TRX_status != GCFT8_TRX_RX)
 				pthread_cond_wait(&FT8.RX_status_cond, &FT8.TRX_status_lock);
 			pthread_mutex_unlock(&FT8.TRX_status_lock);		
 		}
@@ -2356,16 +2554,16 @@ void RX_FT8()
 
 }
 
-void gen_FT8_responses()
+static void gen_FT8_responses()
 {
 	snprintf(FT8.QSO_RESPONSES[0], sizeof(FT8.QSO_RESPONSES[0]), "%s %s %s", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.Local_LOCATOR);
-	snprintf(FT8.QSO_RESPONSES[1], sizeof(FT8.QSO_RESPONSES[1]), "%s %s %+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
-	snprintf(FT8.QSO_RESPONSES[2], sizeof(FT8.QSO_RESPONSES[2]), "%s %s R%+d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	snprintf(FT8.QSO_RESPONSES[1], sizeof(FT8.QSO_RESPONSES[1]), "%s %s %+03d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
+	snprintf(FT8.QSO_RESPONSES[2], sizeof(FT8.QSO_RESPONSES[2]), "%s %s R%+03d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
 	snprintf(FT8.QSO_RESPONSES[3], sizeof(FT8.QSO_RESPONSES[3]), "%s %s RRR", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 	snprintf(FT8.QSO_RESPONSES[4], sizeof(FT8.QSO_RESPONSES[4]), "%s %s 73", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
 }
 
-void Reinit_FT8_QSO()
+static void Reinit_FT8_QSO()
 {
 	FT8.QSO_Index_to_rep=-1;
 	for(int i = 0; i<5;i++){
@@ -2393,7 +2591,7 @@ static bool gcft8_is_signed_number_text(const char* text)
 	return true;
 }
 
-int get_seq_qso_to_rep(const char * mess, bool * flaglog)
+static int get_seq_qso_to_rep(const char * mess, bool * flaglog)
 {
 	int rep = -1;
 	*flaglog=false;
@@ -2553,7 +2751,7 @@ static void gcft8_ensure_adif_log_file(void)
 	}
 }
 
-void log_adif_qso(void)
+static void log_adif_qso(void)
 {
 	char adif_record[sizeof(FT8.infos_to_log)];
 	FILE *fptr;
@@ -2583,7 +2781,7 @@ void log_adif_qso(void)
 
 static void gcft8_uppercase_text(char* text);
 
-void log_qso_to_filter_table(void)
+static void log_qso_to_filter_table(void)
 {
 	char log_dist_CALLSIGN_for_filter[sizeof(FT8.log_dist_CALLSIGN_for_filter)];
 
@@ -2687,7 +2885,7 @@ static void gcft8_process_adif_record(const gcft8_adif_record_t* record)
 	ht_insert(ht_callsigntable_for_filter, callsign);
 }
 
-void load_qso_filter_from_adif(void)
+static void load_qso_filter_from_adif(void)
 {
 	FILE *fptr;
 	long file_size;
@@ -2696,6 +2894,11 @@ void load_qso_filter_from_adif(void)
 	gcft8_adif_record_t record;
 
 	ht_callsigntable_for_filter = ht_create_table();
+	if (ht_callsigntable_for_filter == NULL)
+	{
+		fprintf(stderr, "Out of memory while creating QSO filter table\n");
+		exit(1);
+	}
 	gcft8_ensure_adif_log_file();
 
 	fptr = fopen(FT8.log_file_name,"rb");
@@ -2801,19 +3004,19 @@ void load_qso_filter_from_adif(void)
 	}
 
 	free(content);
-	printf("QSO filter table initialised with %d entry from %s.\n", ht_callsigntable_for_filter->count, FT8.log_file_name);
+	printf("QSO filter table initialised with %zu entry from %s.\n", ht_callsigntable_for_filter->count, FT8.log_file_name);
 	#if DEBUG
 	print_table(ht_callsigntable_for_filter);
 	#endif
 }
 
-void TX_FT8()
+static void TX_FT8()
 {
 	while(!gcft8_shutdown_requested()){
 		pthread_mutex_lock(&FT8.TRX_status_lock);
-		bool stat = FT8.TRX_status;
+		gcft8_trx_state_t stat = FT8.TRX_status;
 		pthread_mutex_unlock(&FT8.TRX_status_lock);
-		if((stat == _TX_) && !gcft8_shutdown_requested()){
+		if((stat == GCFT8_TRX_TX) && !gcft8_shutdown_requested()){
 			
 			bool flaglog = 0;
 			char tx_message[sizeof(FT8.QSO_RESPONSES[0])];
@@ -2865,7 +3068,7 @@ void TX_FT8()
 				float slot_time = mode_cfg->slot_time;
 
 				// Second, encode the binary message as a sequence of FSK tones
-				uint8_t tones[num_tones];
+				uint8_t tones[FT2_NN];
 				if (mode_cfg->protocol == FTX_PROTOCOL_FT2)
 					ft2_encode(tx_msg.payload, tones);
 				else if (mode_cfg->protocol == FTX_PROTOCOL_FT4)
@@ -2888,7 +3091,18 @@ void TX_FT8()
 				int num_lead_silence = (int)(0.5f + mode_cfg->tx_lead_silence * sample_rate);
 				int num_tail_silence = (int)(0.5f + mode_cfg->tx_tail_silence * sample_rate);
 				int num_total_samples = num_lead_silence + num_samples + num_tail_silence;
-				float signal[num_total_samples];
+				float* signal;
+				int16_t* raw_data;
+				bool waveform_ok;
+
+				if (!gcft8_tx_context_ensure(&gcft8_tx_context, (size_t)num_total_samples))
+				{
+					fprintf(stderr, "Out of memory while allocating TX buffers\n");
+					exit(1);
+				}
+
+				signal = gcft8_tx_context.signal;
+				raw_data = gcft8_tx_context.pcm;
 				
 				for (int i = 0; i < num_total_samples; i++)
 				{
@@ -2896,14 +3110,12 @@ void TX_FT8()
 				}
 				
 				if (mode_cfg->protocol == FTX_PROTOCOL_FT2)
-					synth_ft2_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence);
+					waveform_ok = synth_ft2_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence, &gcft8_tx_context.gfsk_scratch);
 				else
-					synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence);
-				
-				int16_t * raw_data = (int16_t*)malloc(num_total_samples*sizeof(int16_t)); // num_samples * numChannels * bitsPerSample / 8;
-				if (raw_data == NULL)
+					waveform_ok = synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence, &gcft8_tx_context.gfsk_scratch);
+				if (!waveform_ok)
 				{
-					fprintf(stderr, "Out of memory while allocating TX buffer\n");
+					fprintf(stderr, "Out of memory while synthesizing TX waveform\n");
 					exit(1);
 				}
 
@@ -2921,22 +3133,20 @@ void TX_FT8()
 
 				if (!playback_prepare_for_tx())
 				{
-					free(raw_data);
 					unlock_RX_thread();
 					continue;
 				}
 				
 				if (!wait_for_tx_slot_start(slot_time, mode_cfg->tx_late_grace))
 				{
-					free(raw_data);
-					tranceiver_rtx(_RX_);
+					tranceiver_rtx(GCFT8_TRX_RX);
 					break;
 				}
 
 				print_slot_separator(mode_cfg, "TX");
 				printDateTime_ms();printf(" start send message\n");
 				
-				tranceiver_rtx(_TX_);
+				tranceiver_rtx(GCFT8_TRX_TX);
 								
 				count = 0;
 				do
@@ -2975,12 +3185,10 @@ void TX_FT8()
 					snd_pcm_drop(sound.playback_handle);
 				}
 				
-				tranceiver_rtx(_RX_);
+				tranceiver_rtx(GCFT8_TRX_RX);
 
 				printDateTime_ms();printf(" stop send message\n");
 
-				free(raw_data);
-			
 			}
 			
 			if(flaglog)
@@ -3004,22 +3212,22 @@ void TX_FT8()
 			printf( "Lock TX thread\n");
 			#endif
 			pthread_mutex_lock(&FT8.TRX_status_lock);
-			while (!gcft8_shutdown_requested() && FT8.TRX_status != _TX_)
+			while (!gcft8_shutdown_requested() && FT8.TRX_status != GCFT8_TRX_TX)
 				pthread_cond_wait(&FT8.TX_status_cond, &FT8.TRX_status_lock);
 			pthread_mutex_unlock(&FT8.TRX_status_lock);		
 		}
 	}
 
-	tranceiver_rtx(_RX_);
+	tranceiver_rtx(GCFT8_TRX_RX);
 }
 
-void * Thread_RX(void *arg) {
+static void * Thread_RX(void *arg) {
 	(void)arg;
 	RX_FT8();
 	return NULL;
 }
 
-void * Thread_TX(void *arg) {
+static void * Thread_TX(void *arg) {
 	(void)arg;
 	TX_FT8();
 	return NULL;
@@ -3028,7 +3236,7 @@ void * Thread_TX(void *arg) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //serial and tranceiver commands
 
-int serial_init(){
+static int serial_init(){
     cssl_start();
     serial.port=cssl_open(serial.pathname,NULL,0,serial.baud,serial.bits,serial.parity,serial.stopbits);
 	if (!serial.port) {
@@ -3041,7 +3249,7 @@ int serial_init(){
 	return 0;
 }
 
-void serial_deinit(void)
+static void serial_deinit(void)
 {
 	if (serial.port != NULL)
 	{
@@ -3052,7 +3260,7 @@ void serial_deinit(void)
 	cssl_stop();
 }
 
-void get_serial_rep(char rep[16])
+static void get_serial_rep(char rep[16])
 {
 	int i;
 	for(i=0;i<15;i++){
@@ -3062,7 +3270,7 @@ void get_serial_rep(char rep[16])
 	rep[(i < 15) ? i + 1 : 15]=0;
 }
 
-bool tranceiver_set_freq(int freq)
+static bool tranceiver_set_freq(int freq)
 {
 	char str[2][16];
 	char rep[2][16];
@@ -3081,7 +3289,7 @@ bool tranceiver_set_freq(int freq)
 	return (bool)((strcmp( rep[0], str[0] ) == 0) && (strcmp( rep[1], str[1] ) == 0));
 }
 
-void tranceiver_init()
+static void tranceiver_init()
 {
 	if (serial.port == NULL)
 		return;
@@ -3092,18 +3300,18 @@ void tranceiver_init()
 	if(!tranceiver_set_freq(FT8.Tranceiver_VFOA_Freq)){printf("Unable to communicate with tranceiver!");exit(-1);} //Set frequency stored
 }
 
-void tranceiver_rtx(bool ptt)
+static void tranceiver_rtx(gcft8_trx_state_t ptt)
 {
 	if (serial.port == NULL)
 		return;
 
-	if (ptt == _TX_){
+	if (ptt == GCFT8_TRX_TX){
 		#if DEBUG
 		printf("tranceiver ptt on\n");
 		#endif
 		cssl_putstring(serial.port,"TX;");
 		} //Set receiving
-	else if (ptt == _RX_){
+	else if (ptt == GCFT8_TRX_RX){
 		#if DEBUG
 		printf("tranceiver ptt off\n");
 		#endif
@@ -3125,7 +3333,7 @@ static void install_signal_handlers(void)
 static void wake_workers_for_shutdown(void)
 {
 	pthread_mutex_lock(&FT8.TRX_status_lock);
-	FT8.TRX_status = _RX_;
+	FT8.TRX_status = GCFT8_TRX_RX;
 	pthread_cond_broadcast(&FT8.RX_status_cond);
 	pthread_cond_broadcast(&FT8.TX_status_cond);
 	pthread_mutex_unlock(&FT8.TRX_status_lock);
@@ -3139,10 +3347,12 @@ static void wake_workers_for_shutdown(void)
 static void gcft8_cleanup(void)
 {
 	clear_status_line();
-	tranceiver_rtx(_RX_);
+	tranceiver_rtx(GCFT8_TRX_RX);
 	serial_deinit();
 	playback_audioDeInit();
 	capture_audioDeInit();
+	gcft8_tx_context_free(&gcft8_tx_context);
+	gcft8_rx_context_free(&gcft8_rx_context);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3266,24 +3476,19 @@ int main (int argc, char *argv[])
 			case CLI_OPTION_HELP:
 				print_usage(argv[0], stdout);
 				exit(0);
-				break;
 			case CLI_OPTION_BEEP:
 				FT8.beep_on_log = 1;
 				break;
-				return 1;
 			case CLI_OPTION_SOUND_DEVICE:
 				sound.capture_sound_device = optarg;
 				sound.playback_sound_device = optarg;
 				break;
-				return 1;
 			case CLI_OPTION_CALLSIGN:
 				copy_text(FT8.Local_CALLSIGN, sizeof(FT8.Local_CALLSIGN), optarg);
 				break;
-				return 1;
 			case CLI_OPTION_LOCATOR:
 				copy_text(FT8.Local_LOCATOR, sizeof(FT8.Local_LOCATOR), optarg);
 				break;
-				return 1;
 			case CLI_OPTION_MODE:
 				if (!gcft8_parse_mode(optarg, &gcft8_mode))
 				{
@@ -3292,17 +3497,14 @@ int main (int argc, char *argv[])
 					exit(1);
 				}
 				break;
-				return 1;
 			case CLI_OPTION_FREQUENCY:
 				frequency_option_used = true;
 				FT8.Tranceiver_VFOA_Freq = atoi(optarg);
 				break;
-				return 1;
 			case CLI_OPTION_BAND:
 				band_option_used = true;
 				copy_text(selected_band, sizeof(selected_band), optarg);
 				break;
-				return 1;
 			case CLI_OPTION_FILTER:
 				if (!ft8_parse_filter_mode(optarg, &FT8.filter_on_cq))
 				{
@@ -3311,7 +3513,6 @@ int main (int argc, char *argv[])
 					exit(1);
 				}
 				break;
-				return 1;
 			case CLI_OPTION_SNR_MIN:
 				if (!gcft8_parse_snr_min(optarg, &gcft8_snr_min))
 				{
@@ -3321,7 +3522,6 @@ int main (int argc, char *argv[])
 				}
 				gcft8_snr_min_enabled = true;
 				break;
-				return 1;
 			case CLI_OPTION_ONLY_PREFIX:
 				if (!gcft8_parse_only_prefixes(optarg))
 				{
@@ -3330,7 +3530,6 @@ int main (int argc, char *argv[])
 					exit(1);
 				}
 				break;
-				return 1;
 			case CLI_OPTION_ONLY_SP_TAG:
 				if (!gcft8_parse_only_sp_tags(optarg))
 				{
@@ -3339,7 +3538,6 @@ int main (int argc, char *argv[])
 					exit(1);
 				}
 				break;
-				return 1;
 			case CLI_OPTION_ONLY_LOCATOR_ZONE:
 				if (!gcft8_parse_locator_zones(optarg))
 				{
@@ -3348,11 +3546,9 @@ int main (int argc, char *argv[])
 					exit(1);
 				}
 				break;
-				return 1;
 			case CLI_OPTION_SERIAL_DEVICE:
 				copy_text(serial.pathname, sizeof(serial.pathname), optarg);
 				break;
-				return 1;
 			default:
 				print_usage(argv[0], stderr);
 				exit(1);
@@ -3395,6 +3591,8 @@ int main (int argc, char *argv[])
 	}
 
 	install_signal_handlers();
+	gcft8_tx_context_init(&gcft8_tx_context);
+	gcft8_rx_context_init(&gcft8_rx_context);
 	
 	latLonForGrid(FT8.Local_LOCATOR,FT8.Local_latlon);
 	snprintf(FT8.QSO_RESPONSES[5], sizeof(FT8.QSO_RESPONSES[5]), "CQ %s %s", FT8.Local_CALLSIGN, FT8.Local_LOCATOR);

@@ -1,5 +1,5 @@
-#ifndef GCFT8_H
-#define GCFT8_H
+#ifndef GCFT8_APP_STATE_H
+#define GCFT8_APP_STATE_H
 
 #include <stdbool.h>
 #include <pthread.h>
@@ -10,12 +10,15 @@
 #define capture_sound_device_ENV (char*)"RTSPECCY_CAPTURE_DEVICE"
 #define playback_sound_device_ENV (char*)"RTSPECCY_PLAYBACK_DEVICE"
 
-#define _RX_ 0
-#define _TX_ 1
-
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
 #endif
+
+typedef enum
+{
+    GCFT8_TRX_RX = 0,
+    GCFT8_TRX_TX = 1
+} gcft8_trx_state_t;
 
 //gcFT8
 typedef struct
@@ -34,7 +37,7 @@ typedef struct
 	char QSO_RESPONSES[6][50];
 	int QSO_Index_to_rep;
 	
-	bool TRX_status;
+	gcft8_trx_state_t TRX_status;
 	pthread_mutex_t TRX_status_lock;
 	pthread_cond_t RX_status_cond;
 	pthread_cond_t TX_status_cond;
@@ -80,9 +83,5 @@ typedef struct
 	int stopbits;
 	int finished;
 } serial_t;
-
-//Functions
-
-void tranceiver_rtx(bool ptt);
 
 #endif

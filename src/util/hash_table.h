@@ -2,8 +2,10 @@
 #define _HASH_H_
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#define hash_CAPACITY 50000
+#define HASH_TABLE_KEY_SIZE 20
 
 #ifdef __cplusplus
 extern "C"
@@ -11,39 +13,28 @@ extern "C"
 #endif
 
 	typedef struct Ht_item Ht_item;
-	 
-	// Define the Hash Table Item here
+
 	struct Ht_item {
-		char* key;
+		char key[HASH_TABLE_KEY_SIZE];
+		uint32_t hash;
+		bool used;
 	};
-	 
-	 
-	typedef struct LinkedList LinkedList;
-	 
-	// Define the Linkedlist here
-	struct LinkedList {
-		Ht_item* item; 
-		LinkedList* next;
-	};
-	 
-	// Define the Hash Table here
+
 	struct HashTable {
-		// Contains an array of pointers
-		// to items
-		Ht_item** items;
-		LinkedList** overflow_buckets;
-		int size;
-		int count;
+		Ht_item* items;
+		size_t size;
+		size_t count;
 	};
 
 	typedef struct HashTable HashTable;
 
 	HashTable* ht_create_table(void);
+	void free_table(HashTable* table);
 	void ht_insert(HashTable* table, const char* key);
-	void print_table(HashTable* table);
-	bool ht_check(HashTable* table, const char* key);
-	void print_search(HashTable* table, const char* key);
-	
+	bool ht_check(const HashTable* table, const char* key);
+	void print_table(const HashTable* table);
+	void print_search(const HashTable* table, const char* key);
+
 #ifdef __cplusplus
 }
 #endif
