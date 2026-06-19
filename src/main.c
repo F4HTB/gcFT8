@@ -38,6 +38,8 @@
 #define CALLSIGN_HASH_CACHE_SIZE 256
 #define GCFT8_MAX_ONLY_PREFIXES 64
 #define GCFT8_PREFIX_TEXT_SIZE 16
+#define GCFT8_MAX_SP_TAGS 64
+#define GCFT8_SP_TAG_TEXT_SIZE 8
 #define GCFT8_MAX_LOCATOR_ZONES 64
 
 #define FT8_FILTER_LISTEN_ONLY 0
@@ -98,6 +100,51 @@ typedef struct
 	int lat_min;
 	int lat_max;
 } gcft8_locator_zone_t;
+
+typedef struct
+{
+	bool is_cq;
+	bool is_for_local;
+	bool has_locator;
+	char cq_tag[FT8_TOKEN_TEXT_SIZE];
+	char to_call[FT8_TOKEN_TEXT_SIZE];
+	char from_call[FT8_TOKEN_TEXT_SIZE];
+	char locator[FT8_TOKEN_TEXT_SIZE];
+	char message[FT8_TOKEN_TEXT_SIZE];
+} gcft8_decoded_message_view_t;
+
+typedef enum
+{
+	GCFT8_REJECT_NONE,
+	GCFT8_REJECT_MISSING_CALLSIGN,
+	GCFT8_REJECT_MISSING_LOCATOR,
+	GCFT8_REJECT_ALREADY_WORKED,
+	GCFT8_REJECT_SNR,
+	GCFT8_REJECT_PREFIX,
+	GCFT8_REJECT_LOCATOR_ZONE,
+	GCFT8_REJECT_SP_TAG
+} gcft8_reject_reason_t;
+
+typedef enum
+{
+	GCFT8_DISPLAY_NORMAL,
+	GCFT8_DISPLAY_FOR_LOCAL,
+	GCFT8_DISPLAY_CQ_CANDIDATE,
+	GCFT8_DISPLAY_ALREADY_WORKED,
+	GCFT8_DISPLAY_FILTERED
+} gcft8_display_class_t;
+
+typedef struct
+{
+	ftx_decoded_message_t decoded;
+	gcft8_decoded_message_view_t view;
+	float frequency_hz;
+	float time_sec;
+	int snr;
+	int score;
+	gcft8_reject_reason_t reject_reason;
+	gcft8_display_class_t display_class;
+} gcft8_rx_candidate_t;
 
 static const gcft8_band_frequency_t gcft8_band_frequencies[] = {
 	{ "80",  3573000,  3575000,  3578000 },
@@ -172,8 +219,16 @@ static bool gcft8_snr_min_enabled;
 static int gcft8_snr_min;
 static char gcft8_only_prefixes[GCFT8_MAX_ONLY_PREFIXES][GCFT8_PREFIX_TEXT_SIZE];
 static size_t gcft8_only_prefix_count;
+static char gcft8_only_sp_tags[GCFT8_MAX_SP_TAGS][GCFT8_SP_TAG_TEXT_SIZE];
+static size_t gcft8_only_sp_tag_count;
 static gcft8_locator_zone_t gcft8_locator_zones[GCFT8_MAX_LOCATOR_ZONES];
 static size_t gcft8_locator_zone_count;
+static HashTable* ht_callsigntable_for_filter;
+
+static bool gcft8_snr_filter_rejects(int snr);
+static bool gcft8_prefix_filter_rejects(const char* callsign);
+static bool gcft8_locator_zone_filter_rejects(const char* locator);
+void printDateTime_log(void);
 
 static bool gcft8_shutdown_requested(void)
 {
@@ -200,6 +255,221 @@ static void copy_text(char* dst, size_t dst_size, const char* src)
 
 	memcpy(dst, src, len);
 	dst[len] = '\0';
+}
+
+static bool gcft8_starts_with(const char* text, const char* prefix)
+{
+	if ((text == NULL) || (prefix == NULL))
+		return false;
+
+	return strncmp(text, prefix, strlen(prefix)) == 0;
+}
+
+static void gcft8_decoded_message_view_init(gcft8_decoded_message_view_t* view)
+{
+	memset(view, 0, sizeof(*view));
+}
+
+static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, const char* local_callsign, gcft8_decoded_message_view_t* view)
+{
+	const ftx_decoded_field_t* field0;
+	const ftx_decoded_field_t* field1;
+	const ftx_decoded_field_t* field2;
+
+	if (view == NULL)
+		return;
+
+	gcft8_decoded_message_view_init(view);
+	if ((decoded == NULL) || (decoded->field_count == 0))
+		return;
+
+	field0 = &decoded->fields[0];
+	field1 = (decoded->field_count > 1) ? &decoded->fields[1] : NULL;
+	field2 = (decoded->field_count > 2) ? &decoded->fields[2] : NULL;
+
+	if (((field0->type == FTX_FIELD_TOKEN) || (field0->type == FTX_FIELD_TOKEN_WITH_ARG)) &&
+		((strcmp(field0->text, "CQ") == 0) || gcft8_starts_with(field0->text, "CQ ")))
+	{
+		view->is_cq = true;
+		copy_text(view->to_call, sizeof(view->to_call), field0->text);
+		if (gcft8_starts_with(field0->text, "CQ "))
+			copy_text(view->cq_tag, sizeof(view->cq_tag), field0->text + 3);
+
+		if ((field1 != NULL) && (field1->type == FTX_FIELD_CALL))
+			copy_text(view->from_call, sizeof(view->from_call), field1->text);
+
+		if ((field2 != NULL) && (field2->type == FTX_FIELD_GRID) && (strlen(field2->text) == 4))
+		{
+			copy_text(view->locator, sizeof(view->locator), field2->text);
+			view->has_locator = true;
+		}
+		return;
+	}
+
+	if ((decoded->field_count >= 2) && (field0->type == FTX_FIELD_CALL) && (field1 != NULL) && (field1->type == FTX_FIELD_CALL))
+	{
+		copy_text(view->to_call, sizeof(view->to_call), field0->text);
+		copy_text(view->from_call, sizeof(view->from_call), field1->text);
+
+		if (field2 != NULL)
+		{
+			copy_text(view->message, sizeof(view->message), field2->text);
+			if (field2->type == FTX_FIELD_GRID)
+			{
+				copy_text(view->locator, sizeof(view->locator), field2->text);
+				view->has_locator = true;
+			}
+		}
+
+		view->is_for_local = (local_callsign != NULL) && (strcmp(view->to_call, local_callsign) == 0);
+	}
+}
+
+static void gcft8_rx_candidate_init(gcft8_rx_candidate_t* candidate)
+{
+	if (candidate == NULL)
+		return;
+
+	memset(candidate, 0, sizeof(*candidate));
+	candidate->snr = -99;
+	candidate->reject_reason = GCFT8_REJECT_NONE;
+	candidate->display_class = GCFT8_DISPLAY_NORMAL;
+}
+
+static bool gcft8_find_decoded_slot(ftx_message_t* const decoded_hashtable[], int table_size, const ftx_message_t* message, int* slot_idx, bool* found_duplicate)
+{
+	int idx_hash;
+	int probes = 0;
+
+	if ((decoded_hashtable == NULL) || (table_size <= 0) || (message == NULL) || (slot_idx == NULL) || (found_duplicate == NULL))
+		return false;
+
+	idx_hash = message->hash % table_size;
+	*found_duplicate = false;
+
+	do
+	{
+		if (decoded_hashtable[idx_hash] == NULL)
+		{
+			*slot_idx = idx_hash;
+			return true;
+		}
+
+		if ((decoded_hashtable[idx_hash]->hash == message->hash) && (memcmp(decoded_hashtable[idx_hash]->payload, message->payload, sizeof(message->payload)) == 0))
+		{
+			*slot_idx = idx_hash;
+			*found_duplicate = true;
+			return true;
+		}
+
+		idx_hash = (idx_hash + 1) % table_size;
+		++probes;
+	} while (probes < table_size);
+
+	return false;
+}
+
+static bool gcft8_sp_tag_filter_rejects(const char* tag)
+{
+	if (gcft8_only_sp_tag_count == 0)
+		return false;
+
+	if ((tag == NULL) || (tag[0] == '\0'))
+		return true;
+
+	for (size_t idx = 0; idx < gcft8_only_sp_tag_count; ++idx)
+	{
+		if (strcmp(tag, gcft8_only_sp_tags[idx]) == 0)
+			return false;
+	}
+
+	return true;
+}
+
+static gcft8_reject_reason_t gcft8_cq_reject_reason(const gcft8_rx_candidate_t* candidate)
+{
+	if (candidate == NULL)
+		return GCFT8_REJECT_MISSING_CALLSIGN;
+
+	if (candidate->view.from_call[0] == '\0')
+		return GCFT8_REJECT_MISSING_CALLSIGN;
+
+	if (ht_check(ht_callsigntable_for_filter, candidate->view.from_call))
+		return GCFT8_REJECT_ALREADY_WORKED;
+
+	if (!candidate->view.has_locator)
+		return GCFT8_REJECT_MISSING_LOCATOR;
+
+	if (gcft8_snr_filter_rejects(candidate->snr))
+		return GCFT8_REJECT_SNR;
+
+	if (gcft8_prefix_filter_rejects(candidate->view.from_call))
+		return GCFT8_REJECT_PREFIX;
+
+	if (gcft8_locator_zone_filter_rejects(candidate->view.locator))
+		return GCFT8_REJECT_LOCATOR_ZONE;
+
+	if (gcft8_sp_tag_filter_rejects(candidate->view.cq_tag))
+		return GCFT8_REJECT_SP_TAG;
+
+	return GCFT8_REJECT_NONE;
+}
+
+static gcft8_display_class_t gcft8_display_class_for_candidate(const gcft8_rx_candidate_t* candidate)
+{
+	if (candidate == NULL)
+		return GCFT8_DISPLAY_NORMAL;
+
+	if (candidate->view.is_for_local)
+		return GCFT8_DISPLAY_FOR_LOCAL;
+
+	if (candidate->view.is_cq)
+	{
+		if (candidate->reject_reason == GCFT8_REJECT_ALREADY_WORKED)
+			return GCFT8_DISPLAY_ALREADY_WORKED;
+
+		if (candidate->reject_reason != GCFT8_REJECT_NONE)
+			return GCFT8_DISPLAY_FILTERED;
+
+		return GCFT8_DISPLAY_CQ_CANDIDATE;
+	}
+
+	return GCFT8_DISPLAY_NORMAL;
+}
+
+static void gcft8_display_rx_candidate(const gcft8_rx_candidate_t* candidate)
+{
+	const char* color_start = "";
+	const char* color_end = "";
+
+	if (candidate == NULL)
+		return;
+
+	switch (candidate->display_class)
+	{
+	case GCFT8_DISPLAY_FOR_LOCAL:
+		color_start = "\033[1;31m";
+		color_end = "\033[0m";
+		break;
+	case GCFT8_DISPLAY_CQ_CANDIDATE:
+		color_start = "\033[1;34m";
+		color_end = "\033[0m";
+		break;
+	case GCFT8_DISPLAY_ALREADY_WORKED:
+		color_start = "\033[1;33m";
+		color_end = "\033[0m";
+		break;
+	case GCFT8_DISPLAY_FILTERED:
+		color_start = "\033[1;35m";
+		color_end = "\033[0m";
+		break;
+	case GCFT8_DISPLAY_NORMAL:
+	default:
+		break;
+	}
+
+	printDateTime_log();
+	printf(" %d %3d %+4.2f %4.0f ~  %s%s%s\n", candidate->snr, candidate->score, candidate->time_sec, candidate->frequency_hz, color_start, candidate->decoded.text, color_end);
 }
 
 static int grid_letter_index(char c)
@@ -522,6 +792,90 @@ static bool gcft8_parse_only_prefixes(const char* value)
 	return true;
 }
 
+static bool gcft8_parse_sp_tag_token(const char* start, size_t len, char* dst, size_t dst_size)
+{
+	size_t out_len = 0;
+	int digits = 0;
+	int letters = 0;
+
+	while ((len > 0) && isspace((unsigned char)*start))
+	{
+		++start;
+		--len;
+	}
+
+	while ((len > 0) && isspace((unsigned char)start[len - 1]))
+		--len;
+
+	if ((len == 0) || (len >= dst_size) || (len > 4))
+		return false;
+
+	for (size_t idx = 0; idx < len; ++idx)
+	{
+		unsigned char ch = (unsigned char)start[idx];
+
+		if (isalpha(ch))
+		{
+			++letters;
+			dst[out_len++] = (char)toupper(ch);
+		}
+		else if (isdigit(ch))
+		{
+			++digits;
+			dst[out_len++] = (char)ch;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	if (!(((letters >= 1) && (letters <= 4) && (digits == 0)) || ((digits == 3) && (letters == 0))))
+		return false;
+
+	dst[out_len] = '\0';
+	return true;
+}
+
+static bool gcft8_parse_only_sp_tags(const char* value)
+{
+	char parsed[GCFT8_MAX_SP_TAGS][GCFT8_SP_TAG_TEXT_SIZE];
+	size_t parsed_count = 0;
+	size_t token_start = 0;
+	size_t idx = 0;
+
+	if ((value == NULL) || (value[0] == '\0'))
+		return false;
+
+	memset(parsed, 0, sizeof(parsed));
+
+	for (;;)
+	{
+		if ((value[idx] == ',') || (value[idx] == '\0'))
+		{
+			if (parsed_count >= GCFT8_MAX_SP_TAGS)
+				return false;
+
+			if (!gcft8_parse_sp_tag_token(value + token_start, idx - token_start, parsed[parsed_count], sizeof(parsed[parsed_count])))
+				return false;
+
+			++parsed_count;
+
+			if (value[idx] == '\0')
+				break;
+
+			token_start = idx + 1;
+		}
+
+		++idx;
+	}
+
+	memset(gcft8_only_sp_tags, 0, sizeof(gcft8_only_sp_tags));
+	memcpy(gcft8_only_sp_tags, parsed, parsed_count * sizeof(parsed[0]));
+	gcft8_only_sp_tag_count = parsed_count;
+	return true;
+}
+
 static bool gcft8_is_simple_portable_suffix(const char* suffix)
 {
 	return (strcmp(suffix, "P") == 0) ||
@@ -739,6 +1093,42 @@ static void gcft8_format_only_prefixes(char* dst, size_t dst_size)
 		}
 
 		offset += (size_t)written;
+	}
+}
+
+static void gcft8_format_only_sp_tags(char* dst, size_t dst_size)
+{
+	size_t offset = 0;
+
+	if (dst_size == 0)
+		return;
+
+	if (gcft8_only_sp_tag_count == 0)
+	{
+		copy_text(dst, dst_size, "off");
+		return;
+	}
+
+	dst[0] = '\0';
+	for (size_t idx = 0; idx < gcft8_only_sp_tag_count; ++idx)
+	{
+		if (idx > 0)
+		{
+			if ((offset + 1) >= dst_size)
+				break;
+
+			dst[offset++] = ',';
+			dst[offset] = '\0';
+		}
+
+		for (size_t src_idx = 0; gcft8_only_sp_tags[idx][src_idx] != '\0'; ++src_idx)
+		{
+			if ((offset + 1) >= dst_size)
+				break;
+
+			dst[offset++] = gcft8_only_sp_tags[idx][src_idx];
+			dst[offset] = '\0';
+		}
 	}
 }
 
@@ -1080,8 +1470,6 @@ FT8info FT8 = {
 	
 };
 
-HashTable* ht_callsigntable_for_filter;
-
 /* Global sound info. */
 soundInfo sound={
 	.capture_sound_device = (char*)"default",
@@ -1327,40 +1715,6 @@ float latLonDist(float * latlonA, float * latlonB){
 		value = -1.0;
 
 	return (float)(acos(value)*6371.0);
-}
-
-int count_occur_str(char * s, const char * c){
-	int count=0;
-	for(int i=0;s[i];i++)  
-    {
-    	if(s[i]==*c)
-    	{
-          count++;
-		}
- 	}
-	return count;
-}
-
-void unpackFT8mess(const char * message_text, char * unpackeds0, char * unpackeds1, char * unpackeds2){
-	char message_copy[FTX_MAX_MESSAGE_LENGTH];
-	char * NullToken;
-	
-	copy_text(message_copy, sizeof(message_copy), message_text);
-
-	NullToken = strtok(message_copy, " ");
-	if(NullToken != 0){
-		copy_text(unpackeds0, FT8_TOKEN_TEXT_SIZE, NullToken);
-	}else{unpackeds0[0] = '\0';}
-	
-	NullToken = strtok(NULL, " ");
-	if(NullToken != 0){
-		copy_text(unpackeds1, FT8_TOKEN_TEXT_SIZE, NullToken);
-	}else{unpackeds1[0] = '\0';}
-	
-	NullToken = strtok(NULL, " ");
-	if(NullToken != 0){
-		copy_text(unpackeds2, FT8_TOKEN_TEXT_SIZE, NullToken);
-	}else{unpackeds2[0] = '\0';}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1775,12 +2129,9 @@ void RX_FT8()
 			ftx_candidate_t candidate_list[kMax_candidates];
 			int num_candidates = ftx_find_candidates(&mon.wf, kMax_candidates, candidate_list, kMin_score);
 
-			//Creat array for analyse
-			char AnalyseArray[kMax_candidates][3][FT8_TOKEN_TEXT_SIZE];
-			float  AnalyseArrayFreqInfo[kMax_candidates];
-			int  AnalyseArraySNRInfo[kMax_candidates];
-			
-			int countanalyse=0;
+			gcft8_rx_candidate_t cq_candidates[kMax_candidates];
+			int cq_candidate_count = 0;
+			bool direct_message_selected = false;
 
 			// Hash table for decoded messages (to check for duplicates)
 			int num_decoded = 0;
@@ -1822,9 +2173,30 @@ void RX_FT8()
 					continue;
 				}
 
-				char message_text[FTX_MAX_MESSAGE_LENGTH];
-				ftx_message_offsets_t message_offsets;
-				ftx_message_rc_t message_status = ftx_message_decode(&message, &callsign_hash_if, message_text, &message_offsets);
+				#if DEBUG
+				printf( "Checking hash table for %4.1fs / %4.1fHz [%d]...\n", time_sec, freq_hz, cand->score);
+				#endif
+				int idx_hash = 0;
+				bool found_duplicate = false;
+				if (!gcft8_find_decoded_slot(decoded_hashtable, kMax_decoded_messages, &message, &idx_hash, &found_duplicate))
+				{
+						#if DEBUG
+						printf( "Decoded message table is full\n");
+						#endif
+					continue;
+				}
+
+				if (found_duplicate)
+				{
+					#if DEBUG
+					printf( "Found a duplicate payload/hash\n");
+					#endif
+					continue;
+				}
+
+				gcft8_rx_candidate_t rx_candidate;
+				gcft8_rx_candidate_init(&rx_candidate);
+				ftx_message_rc_t message_status = ftx_message_decode(&message, &callsign_hash_if, &rx_candidate.decoded);
 				if (message_status != FTX_MESSAGE_RC_OK)
 				{
 					#if DEBUG
@@ -1833,110 +2205,51 @@ void RX_FT8()
 					continue;
 				}
 
-				int snr = gcft8_estimate_snr(&mon.wf, cand, &message);
+				memcpy(&decoded[idx_hash], &message, sizeof(message));
+				decoded_hashtable[idx_hash] = &decoded[idx_hash];
+				++num_decoded;
 
-				#if DEBUG
-				printf( "Checking hash table for %4.1fs / %4.1fHz [%d]...\n", time_sec, freq_hz, cand->score);
-				#endif
-				int idx_hash = message.hash % kMax_decoded_messages;
-				bool found_empty_slot = false;
-				bool found_duplicate = false;
-				int probes = 0;
-				do
+				rx_candidate.frequency_hz = freq_hz;
+				rx_candidate.time_sec = time_sec;
+				rx_candidate.score = cand->score;
+				rx_candidate.snr = gcft8_estimate_snr(&mon.wf, cand, &message);
+				gcft8_analyze_decoded_message(&rx_candidate.decoded, FT8.Local_CALLSIGN, &rx_candidate.view);
+
+				if (rx_candidate.view.is_cq)
+					rx_candidate.reject_reason = gcft8_cq_reject_reason(&rx_candidate);
+				rx_candidate.display_class = gcft8_display_class_for_candidate(&rx_candidate);
+				gcft8_display_rx_candidate(&rx_candidate);
+
+				if (rx_candidate.view.is_for_local)
 				{
-					if (decoded_hashtable[idx_hash] == NULL)
+					if (!direct_message_selected)
 					{
-						#if DEBUG
-						printf( "Found an empty slot\n");
-						#endif
-						found_empty_slot = true;
-					}
-					else if ((decoded_hashtable[idx_hash]->hash == message.hash) && (0 == memcmp(decoded_hashtable[idx_hash]->payload, message.payload, sizeof(message.payload))))
-					{
-						#if DEBUG
-						printf( "Found a duplicate [%s]\n", message_text);
-						#endif
-						found_duplicate = true;
-					}
-					else
-					{
-						#if DEBUG
-						printf( "Hash table clash!\n");
-						#endif
-						// Move on to check the next entry in hash table
-						idx_hash = (idx_hash + 1) % kMax_decoded_messages;
-					}
-					++probes;
-				} while (!found_empty_slot && !found_duplicate && probes < kMax_decoded_messages);
+						direct_message_selected = true;
+						cq_candidate_count = 0;
 
-				if (!found_empty_slot && !found_duplicate)
-					continue;
-
-				if (found_empty_slot)
-				{
-					// Fill the empty hashtable slot
-					memcpy(&decoded[idx_hash], &message, sizeof(message));
-					decoded_hashtable[idx_hash] = &decoded[idx_hash];
-					++num_decoded;
-					
-					printDateTime_log();
-					
-					if ((strncmp(message_text, FT8.Local_CALLSIGN, strlen(FT8.Local_CALLSIGN)) == 0) && (countanalyse>-1)) {
-						
-						countanalyse=-1;
-						printf(" %d %3d %+4.2f %4.0f ~  \033[1;31m%s\033[0m\n", snr, cand->score, time_sec, freq_hz, message_text);
 						if (!ft8_listen_only_filter_active())
 						{
-							unpackFT8mess(message_text,AnalyseArray[0][0],AnalyseArray[0][1],AnalyseArray[0][2]);
-
 							pthread_mutex_lock(&FT8.TRX_status_lock);
 
-							copy_text(FT8.QSO_dist_CALLSIGN, sizeof(FT8.QSO_dist_CALLSIGN), AnalyseArray[0][1]);
-							copy_text(FT8.QSO_dist_MESSAGE, sizeof(FT8.QSO_dist_MESSAGE), AnalyseArray[0][2]);
+							copy_text(FT8.QSO_dist_CALLSIGN, sizeof(FT8.QSO_dist_CALLSIGN), rx_candidate.view.from_call);
+							copy_text(FT8.QSO_dist_MESSAGE, sizeof(FT8.QSO_dist_MESSAGE), rx_candidate.view.message);
 							FT8.QSO_dist_FREQUENCY=freq_hz;
-							FT8.QSO_dist_SNR = snr;
+							FT8.QSO_dist_SNR = rx_candidate.snr;
 							FT8.QSO_Index_to_rep = -1;
 
 							pthread_mutex_unlock(&FT8.TRX_status_lock);
 
 							unlock_TX_thread();
 						}
-						
 					}
-					else if ((strncmp(message_text,"CQ",2) == 0) && (countanalyse>-1)) {
-						unpackFT8mess(message_text,AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
-						
-						AnalyseArrayFreqInfo[countanalyse]=freq_hz;
-						AnalyseArraySNRInfo[countanalyse]=snr;
-						
-						bool empty_callsign = strlen(AnalyseArray[countanalyse][1]) == 0;
-						bool already_worked = !empty_callsign && ht_check(ht_callsigntable_for_filter,AnalyseArray[countanalyse][1]);
-						bool rejected_by_snr = gcft8_snr_filter_rejects(snr);
-						bool rejected_by_prefix = gcft8_prefix_filter_rejects(AnalyseArray[countanalyse][1]);
-						bool rejected_by_locator_zone = gcft8_locator_zone_filter_rejects(AnalyseArray[countanalyse][2]);
-						bool filtered_cq = empty_callsign || strlen(AnalyseArray[countanalyse][2])==0 || count_occur_str(message_text, " ") > 2 || rejected_by_snr || rejected_by_prefix || rejected_by_locator_zone;
-
-						if(already_worked){
-							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
-							printf(" %d %3d %+4.2f %4.0f ~  \033[1;33m%s\033[0m\n", snr, cand->score, time_sec, freq_hz, message_text);
-						}
-						else if(filtered_cq){
-							unpackFT8mess("",AnalyseArray[countanalyse][0],AnalyseArray[countanalyse][1],AnalyseArray[countanalyse][2]);
-							printf(" %d %3d %+4.2f %4.0f ~  \033[1;35m%s\033[0m\n", snr, cand->score, time_sec, freq_hz, message_text);
-						}
-						else{
-							countanalyse++;
-							printf(" %d %3d %+4.2f %4.0f ~  \033[1;34m%s\033[0m\n", snr, cand->score, time_sec, freq_hz, message_text);
-							}
-							
-					
-					}else{
-						printf(" %d %3d %+4.2f %4.0f ~  %s\n", snr, cand->score, time_sec, freq_hz, message_text);
-					}
+				}
+				else if (!direct_message_selected && rx_candidate.view.is_cq && (rx_candidate.reject_reason == GCFT8_REJECT_NONE) && (cq_candidate_count < kMax_candidates))
+				{
+					cq_candidates[cq_candidate_count++] = rx_candidate;
 				}
 			}
 						
-			if((countanalyse>0) && !ft8_listen_only_filter_active() && !gcft8_shutdown_requested()){
+			if((cq_candidate_count>0) && !ft8_listen_only_filter_active() && !gcft8_shutdown_requested()){
 				int index_from_ope = 0;
 				float dist = 0;
 				int actusnr;
@@ -1945,7 +2258,7 @@ void RX_FT8()
 				{
 				
 				case FT8_FILTER_RANDOM_CQ:
-					index_from_ope = ft8_random_index(countanalyse);
+					index_from_ope = ft8_random_index(cq_candidate_count);
 					break;
 					
 				case FT8_FILTER_BEST_DECODE_SCORE:
@@ -1954,13 +2267,13 @@ void RX_FT8()
 				
 				case FT8_FILTER_MAX_DISTANCE:
 					dist = 0;
-					for(int i = 0; i<countanalyse;i++){
-						if(strlen(AnalyseArray[i][2]) == 4){
+					for(int i = 0; i<cq_candidate_count;i++){
+						if(strlen(cq_candidates[i].view.locator) == 4){
 							float latlonlocal[2];
-							latLonForGrid(AnalyseArray[i][2],latlonlocal);
+							latLonForGrid(cq_candidates[i].view.locator,latlonlocal);
 							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
 							#if DEBUG
-							printf("%s lat:%f lon:%f dist:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1],new_dist);
+							printf("%s lat:%f lon:%f dist:%f\n",cq_candidates[i].view.from_call,latlonlocal[0],latlonlocal[1],new_dist);
 							#endif
 							if(dist < new_dist){index_from_ope=i;dist=new_dist;}
 						}
@@ -1969,13 +2282,13 @@ void RX_FT8()
 					
 				case FT8_FILTER_MIN_DISTANCE:
 					dist = 6372;
-					for(int i = 0; i<countanalyse;i++){
-						if(strlen(AnalyseArray[i][2]) == 4){
+					for(int i = 0; i<cq_candidate_count;i++){
+						if(strlen(cq_candidates[i].view.locator) == 4){
 							float latlonlocal[2];
-							latLonForGrid(AnalyseArray[i][2],latlonlocal);
+							latLonForGrid(cq_candidates[i].view.locator,latlonlocal);
 							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
 							#if DEBUG
-							printf("%s lat:%f lon:%f dist:%f\n",AnalyseArray[i][1],latlonlocal[0],latlonlocal[1],new_dist);
+							printf("%s lat:%f lon:%f dist:%f\n",cq_candidates[i].view.from_call,latlonlocal[0],latlonlocal[1],new_dist);
 							#endif
 							if(dist > new_dist){index_from_ope=i;dist=new_dist;}
 						}
@@ -1984,31 +2297,31 @@ void RX_FT8()
 
 				case FT8_FILTER_MAX_SNR:
 					actusnr = -100;
-					for(int i = 0; i<countanalyse;i++){
-						if(AnalyseArraySNRInfo[i] > actusnr){index_from_ope=i;actusnr=AnalyseArraySNRInfo[i];}
+					for(int i = 0; i<cq_candidate_count;i++){
+						if(cq_candidates[i].snr > actusnr){index_from_ope=i;actusnr=cq_candidates[i].snr;}
 					}				
 					break;
 
 				case FT8_FILTER_MIN_SNR:
 					actusnr = 100;
-					for(int i = 0; i<countanalyse;i++){
-						if(AnalyseArraySNRInfo[i] < actusnr){index_from_ope=i;actusnr=AnalyseArraySNRInfo[i];}
+					for(int i = 0; i<cq_candidate_count;i++){
+						if(cq_candidates[i].snr < actusnr){index_from_ope=i;actusnr=cq_candidates[i].snr;}
 					}				
 					break;
 				
 								
 				default:
-					index_from_ope = ft8_random_index(countanalyse);
+					index_from_ope = ft8_random_index(cq_candidate_count);
 					break;
 
 				}
 				
 				pthread_mutex_lock(&FT8.TRX_status_lock);
 				
-				copy_text(FT8.QSO_dist_CALLSIGN, sizeof(FT8.QSO_dist_CALLSIGN), AnalyseArray[index_from_ope][1]);
-				copy_text(FT8.QSO_dist_LOCATOR, sizeof(FT8.QSO_dist_LOCATOR), AnalyseArray[index_from_ope][2]);
+				copy_text(FT8.QSO_dist_CALLSIGN, sizeof(FT8.QSO_dist_CALLSIGN), cq_candidates[index_from_ope].view.from_call);
+				copy_text(FT8.QSO_dist_LOCATOR, sizeof(FT8.QSO_dist_LOCATOR), cq_candidates[index_from_ope].view.locator);
 				FT8.QSO_Index_to_rep=0;
-				FT8.QSO_dist_FREQUENCY=AnalyseArrayFreqInfo[index_from_ope];
+				FT8.QSO_dist_FREQUENCY=cq_candidates[index_from_ope].frequency_hz;
 				
 				pthread_mutex_unlock(&FT8.TRX_status_lock);
 				
@@ -2066,43 +2379,49 @@ void Reinit_FT8_QSO()
 	FT8.QSO_dist_SNR=0;
 }
 
+static bool gcft8_is_signed_number_text(const char* text)
+{
+	if ((text == NULL) || ((text[0] != '-') && (text[0] != '+')) || !isdigit((unsigned char)text[1]))
+		return false;
+
+	for (size_t idx = 2; text[idx] != '\0'; ++idx)
+	{
+		if (!isdigit((unsigned char)text[idx]))
+			return false;
+	}
+
+	return true;
+}
+
 int get_seq_qso_to_rep(const char * mess, bool * flaglog)
 {
 	int rep = -1;
-	size_t len;
 	*flaglog=false;
 
 	if (mess == NULL || mess[0] == '\0')
 		return -1;
-
-	len = strlen(mess);
 	
-	if ((mess[0] == '-') && (isdigit((unsigned char)mess[len-1])))
+	if (gcft8_is_signed_number_text(mess))
 	{
 		rep = 2;*flaglog=false;
 	}
 	
-	if ((mess[0] == '+') && (isdigit((unsigned char)mess[len-1])))
-	{
-		rep = 2;*flaglog=false;
-	}
-
-	if ((mess[0] == 'R') && (isdigit((unsigned char)mess[len-1])))
+	if ((mess[0] == 'R') && gcft8_is_signed_number_text(mess + 1))
 	{
 		rep = 3;*flaglog=false;
 	}
 
-	if ((mess[0] == 'R') && (mess[1] == 'R') && (mess[2] == 'R')) 
+	if (strcmp(mess, "RRR") == 0)
 	{
 		rep = 4;*flaglog=false;
 	}
 	
-	if ((mess[0] == 'R') && (mess[1] == 'R') && (mess[2] == '7') && (mess[3] == '3')) 
+	if (strcmp(mess, "RR73") == 0)
 	{
 		rep = 4;*flaglog=true;
 	}
 
-	if ((mess[0] == '7') && (mess[1] == '3')) 
+	if (strcmp(mess, "73") == 0)
 	{
 		rep = -1;*flaglog=true;
 	}
@@ -2853,6 +3172,7 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  --filter <mode>            Operating/filter mode (default: 0, listen only)\n"
 		"  --snr-min <snr>            Reject CQ candidates below this SNR, for example -18\n"
 		"  --only-prefix <list>       Only auto-select CQ callsigns with these prefixes, for example JA,VK,ZL\n"
+		"  --only-sp-tag <list>       Only auto-select special CQ tags, for example POTA,SOTA,DX\n"
 		"  --only-locator-zone <list> Only auto-select CQ locators in two-letter zones, for example BP:FL\n"
 		"  --beep                     Enable console beep when a QSO is logged\n"
 		"\n"
@@ -2895,7 +3215,7 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  Red      Local station related message\n"
 		"  Blue     CQ candidate\n"
 		"  Yellow   Already worked callsign\n"
-		"  Magenta  Filtered CQ, missing info, non-standard message or empty callsign\n");
+		"  Magenta  Filtered CQ, missing locator/callsign, or CQ rejected by optional filters\n");
 }
 
 enum
@@ -2911,6 +3231,7 @@ enum
 	CLI_OPTION_FILTER,
 	CLI_OPTION_SNR_MIN,
 	CLI_OPTION_ONLY_PREFIX,
+	CLI_OPTION_ONLY_SP_TAG,
 	CLI_OPTION_ONLY_LOCATOR_ZONE,
 	CLI_OPTION_SERIAL_DEVICE
 };
@@ -2933,6 +3254,7 @@ int main (int argc, char *argv[])
 		{ "filter", required_argument, NULL, CLI_OPTION_FILTER },
 		{ "snr-min", required_argument, NULL, CLI_OPTION_SNR_MIN },
 		{ "only-prefix", required_argument, NULL, CLI_OPTION_ONLY_PREFIX },
+		{ "only-sp-tag", required_argument, NULL, CLI_OPTION_ONLY_SP_TAG },
 		{ "only-locator-zone", required_argument, NULL, CLI_OPTION_ONLY_LOCATOR_ZONE },
 		{ "serial-device", required_argument, NULL, CLI_OPTION_SERIAL_DEVICE },
 		{ NULL, 0, NULL, 0 }
@@ -3009,6 +3331,15 @@ int main (int argc, char *argv[])
 				}
 				break;
 				return 1;
+			case CLI_OPTION_ONLY_SP_TAG:
+				if (!gcft8_parse_only_sp_tags(optarg))
+				{
+					fprintf(stderr, "Invalid special CQ tag list '%s'. Use comma-separated 1-4 letter tags or 3-digit tags, for example POTA,SOTA,DX.\n", optarg);
+					print_usage(argv[0], stderr);
+					exit(1);
+				}
+				break;
+				return 1;
 			case CLI_OPTION_ONLY_LOCATOR_ZONE:
 				if (!gcft8_parse_locator_zones(optarg))
 				{
@@ -3077,12 +3408,14 @@ int main (int argc, char *argv[])
 	const gcft8_mode_config_t* startup_mode_cfg = gcft8_current_mode_config();
 	char startup_snr_min_text[32];
 	char startup_prefix_filter[256];
+	char startup_sp_tag_filter[256];
 	char startup_locator_zone_filter[256];
 	if (gcft8_snr_min_enabled)
 		snprintf(startup_snr_min_text, sizeof(startup_snr_min_text), "%d", gcft8_snr_min);
 	else
 		copy_text(startup_snr_min_text, sizeof(startup_snr_min_text), "off");
 	gcft8_format_only_prefixes(startup_prefix_filter, sizeof(startup_prefix_filter));
+	gcft8_format_only_sp_tags(startup_sp_tag_filter, sizeof(startup_sp_tag_filter));
 	gcft8_format_locator_zones(startup_locator_zone_filter, sizeof(startup_locator_zone_filter));
 	printf("Starting with this:\n"
 		"-mode is %s\n"
@@ -3095,6 +3428,7 @@ int main (int argc, char *argv[])
 		"-CQ filter method is %d\n"
 		"-SNR minimum filter is %s\n"
 		"-Prefix filter is %s\n"
+		"-Special CQ tag filter is %s\n"
 		"-Locator zone filter is %s\n"
 		"-Beep on log %d\n",
 		startup_mode_cfg->name,
@@ -3107,6 +3441,7 @@ int main (int argc, char *argv[])
 		FT8.filter_on_cq,
 		startup_snr_min_text,
 		startup_prefix_filter,
+		startup_sp_tag_filter,
 		startup_locator_zone_filter,
 		FT8.beep_on_log);
 		

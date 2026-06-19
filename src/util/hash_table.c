@@ -5,15 +5,22 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
-#include <math.h>
 #include "hash_table.h"
 
- 
-unsigned long hash_function(char* str) {
-    unsigned long long i = 0;
-    for (int j=0; str[j]; j++)
-        i += (toupper(str[j])-50)*pow(j,10);
-    return i % hash_CAPACITY;
+
+static unsigned long hash_function(const char* str) {
+    unsigned long hash = 2166136261u;
+
+    if (str == NULL)
+        return 0;
+
+    while (*str) {
+        hash ^= (unsigned char)toupper((unsigned char)*str);
+        hash *= 16777619u;
+        ++str;
+    }
+
+    return hash % hash_CAPACITY;
 }
  
 static LinkedList* allocate_list () {
@@ -81,7 +88,7 @@ static void free_overflow_buckets(HashTable* table) {
 }
  
  
-Ht_item* create_item(char* key) {
+Ht_item* create_item(const char* key) {
     // Creates a pointer to a new hash table item
     Ht_item* item = (Ht_item*) malloc (sizeof(Ht_item));
     item->key = (char*) malloc (strlen(key) + 1);
@@ -141,7 +148,7 @@ void handle_collision(HashTable* table, unsigned long long index, Ht_item* item)
     }
  }
  
-void ht_insert(HashTable* table, char* key) {
+void ht_insert(HashTable* table, const char* key) {
     if (ht_check(table, key)) {
 		printf("Attention, duplicate entry in QSO filter table: %s\n",key);
         return;
@@ -177,7 +184,7 @@ void ht_insert(HashTable* table, char* key) {
     }
 }
  
-char* ht_search(HashTable* table, char* key) {
+char* ht_search(HashTable* table, const char* key) {
     // Searches the key in the hashtable
     // and returns NULL if it doesn't exist
     unsigned long long index = hash_function(key);
@@ -196,7 +203,7 @@ char* ht_search(HashTable* table, char* key) {
     return NULL;
 }
 
-bool ht_check(HashTable* table, char* key) {
+bool ht_check(HashTable* table, const char* key) {
     // Searches the key in the hashtable
     // and returns NULL if it doesn't exist
     unsigned long long index = hash_function(key);
@@ -215,7 +222,7 @@ bool ht_check(HashTable* table, char* key) {
     return false;
 }
  
-void ht_delete(HashTable* table, char* key) {
+void ht_delete(HashTable* table, const char* key) {
     // Deletes an item from the table
     unsigned long long index = hash_function(key);
     Ht_item* item = table->items[index];
@@ -280,7 +287,7 @@ void ht_delete(HashTable* table, char* key) {
     }
 }
  
-void print_search(HashTable* table, char* key) {
+void print_search(HashTable* table, const char* key) {
     char* val;
     if ((val = ht_search(table, key)) == NULL) {
         printf("%s does not exist\n", key);

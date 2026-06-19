@@ -4,6 +4,7 @@
 #include "ldpc.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <math.h>
 
 // #define LOG_LEVEL LOG_DEBUG
@@ -39,12 +40,30 @@ static bool ftx_is_4tone_protocol(ftx_protocol_t protocol)
     return (protocol == FTX_PROTOCOL_FT4) || (protocol == FTX_PROTOCOL_FT2);
 }
 
-static const WF_ELEM_T* get_cand_mag(const ftx_waterfall_t* wf, const ftx_candidate_t* candidate)
+static const WF_ELEM_T* get_cand_mag(const ftx_waterfall_t* wf, const ftx_candidate_t* candidate, int symbol_offset, int num_tones)
 {
-    int offset = candidate->time_offset;
-    offset = (offset * wf->time_osr) + candidate->time_sub;
-    offset = (offset * wf->freq_osr) + candidate->freq_sub;
-    offset = (offset * wf->num_bins) + candidate->freq_offset;
+    int block_abs;
+    size_t sub_offset;
+    size_t offset;
+
+    if ((wf == NULL) || (candidate == NULL) || (wf->mag == NULL) || (num_tones <= 0))
+        return NULL;
+
+    if ((wf->num_blocks <= 0) || (wf->num_bins <= 0) || (wf->time_osr <= 0) || (wf->freq_osr <= 0) || (wf->block_stride <= 0))
+        return NULL;
+
+    if ((candidate->time_sub >= wf->time_osr) || (candidate->freq_sub >= wf->freq_osr))
+        return NULL;
+
+    if ((candidate->freq_offset < 0) || ((candidate->freq_offset + num_tones) > wf->num_bins))
+        return NULL;
+
+    block_abs = candidate->time_offset + symbol_offset;
+    if ((block_abs < 0) || (block_abs >= wf->num_blocks))
+        return NULL;
+
+    sub_offset = (((size_t)candidate->time_sub * (size_t)wf->freq_osr) + (size_t)candidate->freq_sub) * (size_t)wf->num_bins;
+    offset = ((size_t)block_abs * (size_t)wf->block_stride) + sub_offset + (size_t)candidate->freq_offset;
     return wf->mag + offset;
 }
 
@@ -52,9 +71,6 @@ static int ft8_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
 {
     int score = 0;
     int num_average = 0;
-
-    // Get the pointer to symbol 0 of the candidate
-    const WF_ELEM_T* mag_cand = get_cand_mag(wf, candidate);
 
     // Compute average score over sync symbols (m+k = 0-7, 36-43, 72-79)
     for (int m = 0; m < FT8_NUM_SYNC; ++m)
@@ -70,7 +86,9 @@ static int ft8_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
                 break;
 
             // Get the pointer to symbol 'block' of the candidate
-            const WF_ELEM_T* p8 = mag_cand + (block * wf->block_stride);
+            const WF_ELEM_T* p8 = get_cand_mag(wf, candidate, block, 8);
+            if (p8 == NULL)
+                continue;
 
             // Weighted difference between the expected and all other symbols
             // Does not work as well as the alternative score below
@@ -119,9 +137,6 @@ static int ft4_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
     int score = 0;
     int num_average = 0;
 
-    // Get the pointer to symbol 0 of the candidate
-    const WF_ELEM_T* mag_cand = get_cand_mag(wf, candidate);
-
     // Compute average score over sync symbols (block = 1-4, 34-37, 67-70, 100-103)
     for (int m = 0; m < FT4_NUM_SYNC; ++m)
     {
@@ -136,7 +151,9 @@ static int ft4_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
                 break;
 
             // Get the pointer to symbol 'block' of the candidate
-            const WF_ELEM_T* p4 = mag_cand + (block * wf->block_stride);
+            const WF_ELEM_T* p4 = get_cand_mag(wf, candidate, block, 4);
+            if (p4 == NULL)
+                continue;
 
             int sm = kFT4_Costas_pattern[m][k]; // Index of the expected bin
 
@@ -256,8 +273,6 @@ int ftx_find_candidates(const ftx_waterfall_t* wf, int num_candidates, ftx_candi
 
 static void ft4_extract_likelihood(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, float* log174)
 {
-    const WF_ELEM_T* mag = get_cand_mag(wf, cand); // Pointer to 4 magnitude bins of the first symbol
-
     // Go over FSK tones and skip Costas sync symbols
     for (int k = 0; k < FT4_ND; ++k)
     {
@@ -275,15 +290,22 @@ static void ft4_extract_likelihood(const ftx_waterfall_t* wf, const ftx_candidat
         }
         else
         {
-            ft4_extract_symbol(mag + (sym_idx * wf->block_stride), log174 + bit_idx);
+            const WF_ELEM_T* mag = get_cand_mag(wf, cand, sym_idx, 4);
+            if (mag == NULL)
+            {
+                log174[bit_idx + 0] = 0;
+                log174[bit_idx + 1] = 0;
+            }
+            else
+            {
+                ft4_extract_symbol(mag, log174 + bit_idx);
+            }
         }
     }
 }
 
 static void ft8_extract_likelihood(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, float* log174)
 {
-    const WF_ELEM_T* mag = get_cand_mag(wf, cand); // Pointer to 8 magnitude bins of the first symbol
-
     // Go over FSK tones and skip Costas sync symbols
     for (int k = 0; k < FT8_ND; ++k)
     {
@@ -302,7 +324,17 @@ static void ft8_extract_likelihood(const ftx_waterfall_t* wf, const ftx_candidat
         }
         else
         {
-            ft8_extract_symbol(mag + (sym_idx * wf->block_stride), log174 + bit_idx);
+            const WF_ELEM_T* mag = get_cand_mag(wf, cand, sym_idx, 8);
+            if (mag == NULL)
+            {
+                log174[bit_idx + 0] = 0;
+                log174[bit_idx + 1] = 0;
+                log174[bit_idx + 2] = 0;
+            }
+            else
+            {
+                ft8_extract_symbol(mag, log174 + bit_idx);
+            }
         }
     }
 }
@@ -319,6 +351,8 @@ static void ftx_normalize_logl(float* log174)
     }
     float inv_n = 1.0f / FTX_LDPC_N;
     float variance = (sum2 - (sum * sum * inv_n)) * inv_n;
+    if (variance <= 0.0f)
+        return;
 
     // Normalize log174 distribution and scale it with experimentally found coefficient
     float norm_factor = sqrtf(24.0f / variance);

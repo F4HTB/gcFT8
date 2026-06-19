@@ -53,6 +53,20 @@ void ftx_message_init(ftx_message_t* msg)
     memset((void*)msg, 0, sizeof(ftx_message_t));
 }
 
+void ftx_decoded_message_init(ftx_decoded_message_t* decoded)
+{
+    if (decoded == NULL)
+        return;
+
+    memset((void*)decoded, 0, sizeof(ftx_decoded_message_t));
+    decoded->type = FTX_MESSAGE_TYPE_UNKNOWN;
+    for (int i = 0; i < FTX_MAX_MESSAGE_FIELDS; ++i)
+    {
+        decoded->fields[i].type = FTX_FIELD_UNKNOWN;
+        decoded->fields[i].offset = -1;
+    }
+}
+
 uint8_t ftx_message_get_i3(const ftx_message_t* msg)
 {
     // Extract i3 (bits 74..76)
@@ -386,68 +400,127 @@ ftx_message_rc_t ftx_message_encode_telemetry(ftx_message_t* msg, const uint8_t*
     return FTX_MESSAGE_RC_OK;
 }
 
-ftx_message_rc_t ftx_message_decode(const ftx_message_t* msg, ftx_callsign_hash_interface_t* hash_if, char* message, ftx_message_offsets_t* offsets)
+static void ftx_copy_decoded_text(char* dst, size_t dst_size, const char* src)
+{
+    if (dst_size == 0)
+        return;
+
+    if (src == NULL)
+        src = "";
+
+    size_t len = strlen(src);
+    if (len >= dst_size)
+        len = dst_size - 1;
+
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+}
+
+static bool ftx_decoded_append_text(char* dst, size_t dst_size, const char* text)
+{
+    size_t dst_len;
+    size_t text_len;
+
+    if ((dst == NULL) || (text == NULL))
+        return false;
+
+    dst_len = strlen(dst);
+    text_len = strlen(text);
+    if (text_len >= dst_size - dst_len)
+        return false;
+
+    memcpy(dst + dst_len, text, text_len + 1);
+    return true;
+}
+
+static bool ftx_decoded_append_field(ftx_decoded_message_t* decoded, const char* field_text, ftx_field_t field_type)
+{
+    ftx_decoded_field_t* field;
+
+    if ((decoded == NULL) || (field_text == NULL))
+        return false;
+
+    if ((field_type == FTX_FIELD_NONE) || (field_text[0] == '\0'))
+        return true;
+
+    if (decoded->field_count >= FTX_MAX_MESSAGE_FIELDS)
+        return false;
+
+    field = &decoded->fields[decoded->field_count];
+    if (decoded->text[0] != '\0')
+    {
+        if (!ftx_decoded_append_text(decoded->text, sizeof(decoded->text), " "))
+            return false;
+    }
+
+    field->offset = (int16_t)strlen(decoded->text);
+    if (!ftx_decoded_append_text(decoded->text, sizeof(decoded->text), field_text))
+        return false;
+
+    ftx_copy_decoded_text(field->text, sizeof(field->text), field_text);
+    field->type = field_type;
+    ++decoded->field_count;
+    return true;
+}
+
+ftx_message_rc_t ftx_message_decode(const ftx_message_t* msg, ftx_callsign_hash_interface_t* hash_if, ftx_decoded_message_t* decoded)
 {
     ftx_message_rc_t rc;
 
-    char buf[35]; // 13 + 13 + 6 (std/nonstd) / 14 (free text) / 19 (telemetry)
-    char* field1 = buf;
-    char* field2 = buf + 14;
-    char* field3 = buf + 14 + 14;
+    char field1[FTX_MAX_FIELD_LENGTH];
+    char field2[FTX_MAX_FIELD_LENGTH];
+    char field3[FTX_MAX_FIELD_LENGTH];
+    ftx_field_t field_types[FTX_MAX_MESSAGE_FIELDS];
 
-    message[0] = '\0';
+    if (decoded == NULL)
+        return FTX_MESSAGE_RC_ERROR_TYPE;
+
+    ftx_decoded_message_init(decoded);
+    decoded->type = ftx_message_get_type(msg);
+    decoded->i3 = ftx_message_get_i3(msg);
+    decoded->n3 = ftx_message_get_n3(msg);
+
     for (int i = 0; i < FTX_MAX_MESSAGE_FIELDS; ++i)
     {
-        offsets->types[i] = FTX_FIELD_UNKNOWN;
-        offsets->offsets[i] = -1;
+        field_types[i] = FTX_FIELD_UNKNOWN;
     }
 
-    ftx_message_type_t msg_type = ftx_message_get_type(msg);
-    switch (msg_type)
+    field1[0] = field2[0] = field3[0] = '\0';
+
+    switch (decoded->type)
     {
     case FTX_MESSAGE_TYPE_STANDARD:
-        rc = ftx_message_decode_std(msg, hash_if, field1, field2, field3, offsets->types);
+        rc = ftx_message_decode_std(msg, hash_if, field1, field2, field3, field_types);
         break;
     case FTX_MESSAGE_TYPE_NONSTD_CALL:
-        rc = ftx_message_decode_nonstd(msg, hash_if, field1, field2, field3, offsets->types);
+        rc = ftx_message_decode_nonstd(msg, hash_if, field1, field2, field3, field_types);
         break;
     case FTX_MESSAGE_TYPE_FREE_TEXT:
         ftx_message_decode_free(msg, field1);
-        field2 = NULL;
-        field3 = NULL;
+        field_types[0] = FTX_FIELD_TEXT;
         rc = FTX_MESSAGE_RC_OK;
         break;
     case FTX_MESSAGE_TYPE_TELEMETRY:
         ftx_message_decode_telemetry_hex(msg, field1);
-        field2 = NULL;
-        field3 = NULL;
+        field_types[0] = FTX_FIELD_TELEMETRY;
         rc = FTX_MESSAGE_RC_OK;
         break;
     default:
         // not handled yet
-        field1 = NULL;
         rc = FTX_MESSAGE_RC_ERROR_TYPE;
         break;
     }
 
-    if (field1 != NULL)
+    if (rc != FTX_MESSAGE_RC_OK)
+        return rc;
+
+    if (!ftx_decoded_append_field(decoded, field1, field_types[0]))
+        return FTX_MESSAGE_RC_ERROR_TYPE;
+    if (!ftx_decoded_append_field(decoded, field2, field_types[1]))
+        return FTX_MESSAGE_RC_ERROR_TYPE;
+    if (!ftx_decoded_append_field(decoded, field3, field_types[2]))
     {
-        // TODO join fields via whitespace
-        const char* message_start = message;
-        message = append_string(message, field1);
-        offsets->offsets[0] = 0;
-        if (field2 != NULL)
-        {
-            message = append_string(message, " ");
-            offsets->offsets[1] = message - message_start;
-            message = append_string(message, field2);
-            if ((field3 != NULL) && (field3[0] != 0))
-            {
-                message = append_string(message, " ");
-                offsets->offsets[2] = message - message_start;
-                message = append_string(message, field3);
-            }
-        }
+        return FTX_MESSAGE_RC_ERROR_TYPE;
     }
 
     return rc;

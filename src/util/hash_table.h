@@ -39,10 +39,10 @@ extern "C"
 	typedef struct HashTable HashTable;
 
 	HashTable* ht_create_table(void);
-	void ht_insert(HashTable* table, char* key);
+	void ht_insert(HashTable* table, const char* key);
 	void print_table(HashTable* table);
-	bool ht_check(HashTable* table, char* key);
-	void print_search(HashTable* table, char* key);
+	bool ht_check(HashTable* table, const char* key);
+	void print_search(HashTable* table, const char* key);
 	
 #ifdef __cplusplus
 }

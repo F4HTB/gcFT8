@@ -29,6 +29,8 @@ make clean
 make
 ```
 
+`make` builds the release binary by default. Use `make debug` for an AddressSanitizer debug binary named `gcFT8-debug`.
+
 ## Example
 
 ```bash
@@ -55,10 +57,16 @@ Select CQ calls in two-letter Maidenhead locator zones. `BP:CO` accepts `BO`, `B
 ./gcFT8 --mode ft8 --band 20 --filter 1 --only-locator-zone BP:CO
 ```
 
+Select only special-purpose CQ tags such as `CQ POTA ...`, `CQ SOTA ...`, or `CQ DX ...`:
+
+```bash
+./gcFT8 --mode ft8 --band 20 --filter 1 --only-sp-tag POTA,SOTA,DX
+```
+
 Combine filters before the final automatic CQ choice:
 
 ```bash
-./gcFT8 --mode ft2 --band 20 --filter 5 --snr-min -16 --only-prefix JA,VK,ZL --only-locator-zone BP:FL,IO:KM,ON:PL
+./gcFT8 --mode ft2 --band 20 --filter 5 --snr-min -16 --only-prefix JA,VK,ZL --only-sp-tag POTA,SOTA --only-locator-zone BP:FL,IO:KM,ON:PL
 ```
 
 ## Options
@@ -75,6 +83,7 @@ Combine filters before the final automatic CQ choice:
 --filter <0..6>
 --snr-min <snr>
 --only-prefix <prefix[,prefix...]>
+--only-sp-tag <tag[,tag...]>
 --only-locator-zone <LL:LL[,LL:LL...]>
 --beep
 ```
@@ -85,11 +94,13 @@ Combine filters before the final automatic CQ choice:
 
 `--only-prefix` is optional. When present, automatic CQ selection only keeps CQ callsigns matching one of the comma-separated prefixes, case-insensitively. Simple portable suffixes such as `/P`, `/M`, `/MM`, `/AM`, and `/QRP` are ignored for matching.
 
+`--only-sp-tag` is optional. When present, automatic CQ selection only keeps tagged CQ calls matching one of the comma-separated special-purpose tags, for example `POTA`, `SOTA`, `IOTA`, `DX`, or `TEST`. Matching is exact after uppercase normalization; an untagged `CQ CALL LOC` is rejected by this filter.
+
 `--only-locator-zone` is optional. When present, automatic CQ selection only keeps locators whose first two Maidenhead letters fall inside one of the inclusive ranges. For example, `BP:CO` accepts `BO`, `BP`, `CO`, and `CP`.
 
 These optional filters only affect automatic CQ candidate selection. Decoded messages are still displayed, direct messages to your station are not blocked, and the ADIF already-worked filter still applies.
 
-At startup, `gcFT8` prints a summary of the active mode, frequency, log file, filter mode, `--snr-min`, `--only-prefix`, and `--only-locator-zone` settings.
+At startup, `gcFT8` prints a summary of the active mode, frequency, log file, filter mode, `--snr-min`, `--only-prefix`, `--only-sp-tag`, and `--only-locator-zone` settings.
 
 ## Filters
 
@@ -110,7 +121,7 @@ Cyan     RX/TX slot separator
 Red      Local station related message
 Blue     CQ candidate
 Yellow   Already worked callsign
-Magenta  Filtered CQ, missing info, non-standard message or empty callsign
+Magenta  Filtered CQ, missing locator/callsign, or CQ rejected by optional filters
 ```
 
 Before using it, check whether automated operation is allowed in your country. For testing only.

@@ -1,4 +1,5 @@
 gcFT8
+gcFT8-debug
 build/
 *.log
 *.adif
