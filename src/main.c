@@ -173,6 +173,18 @@ typedef struct
 
 typedef struct
 {
+	int sample_rate;
+	int samples_per_symbol;
+	int num_samples;
+	int num_lead_silence;
+	int num_tail_silence;
+	int num_total_samples;
+	size_t gfsk_dphi_capacity;
+	size_t gfsk_pulse_capacity;
+} gcft8_tx_audio_layout_t;
+
+typedef struct
+{
 	float* signal;
 	size_t signal_capacity;
 	int16_t* pcm;
@@ -650,6 +662,69 @@ static bool gcft8_tx_context_ensure(gcft8_tx_context_t* ctx, size_t sample_count
 
 	return gcft8_ensure_float_buffer(&ctx->signal, &ctx->signal_capacity, sample_count) &&
 		gcft8_ensure_i16_buffer(&ctx->pcm, &ctx->pcm_capacity, sample_count);
+}
+
+static bool gcft8_tx_audio_layout_for_mode(const gcft8_mode_config_t* mode_cfg, int sample_rate, gcft8_tx_audio_layout_t* layout)
+{
+	size_t num_samples;
+	size_t lead_samples;
+	size_t tail_samples;
+	size_t total_samples;
+	size_t samples_per_symbol;
+
+	if ((mode_cfg == NULL) || (layout == NULL) || (sample_rate <= 0) || (mode_cfg->num_tones <= 0) || (mode_cfg->symbol_period <= 0.0f))
+		return false;
+
+	samples_per_symbol = (size_t)(0.5f + sample_rate * mode_cfg->symbol_period);
+	if (samples_per_symbol == 0)
+		return false;
+
+	if ((size_t)mode_cfg->num_tones > (SIZE_MAX / samples_per_symbol))
+		return false;
+	num_samples = (size_t)mode_cfg->num_tones * samples_per_symbol;
+	lead_samples = (size_t)(0.5f + mode_cfg->tx_lead_silence * sample_rate);
+	tail_samples = (size_t)(0.5f + mode_cfg->tx_tail_silence * sample_rate);
+	if ((lead_samples > SIZE_MAX - num_samples) || (tail_samples > SIZE_MAX - lead_samples - num_samples))
+		return false;
+	total_samples = lead_samples + num_samples + tail_samples;
+
+	if ((samples_per_symbol > (SIZE_MAX / 3u)) || (num_samples > SIZE_MAX - (2u * samples_per_symbol)) ||
+		(total_samples > (size_t)INT_MAX) || (num_samples > (size_t)INT_MAX) ||
+		(lead_samples > (size_t)INT_MAX) || (tail_samples > (size_t)INT_MAX) || (samples_per_symbol > (size_t)INT_MAX))
+		return false;
+
+	layout->sample_rate = sample_rate;
+	layout->samples_per_symbol = (int)samples_per_symbol;
+	layout->num_samples = (int)num_samples;
+	layout->num_lead_silence = (int)lead_samples;
+	layout->num_tail_silence = (int)tail_samples;
+	layout->num_total_samples = (int)total_samples;
+	layout->gfsk_dphi_capacity = num_samples + (2u * samples_per_symbol);
+	layout->gfsk_pulse_capacity = 3u * samples_per_symbol;
+	return true;
+}
+
+static bool gcft8_tx_context_has_capacity(const gcft8_tx_context_t* ctx, const gcft8_tx_audio_layout_t* layout)
+{
+	if ((ctx == NULL) || (layout == NULL) || (layout->num_total_samples <= 0))
+		return false;
+
+	return (ctx->signal != NULL) && (ctx->pcm != NULL) &&
+		(ctx->signal_capacity >= (size_t)layout->num_total_samples) &&
+		(ctx->pcm_capacity >= (size_t)layout->num_total_samples) &&
+		(ctx->gfsk_scratch.dphi_capacity >= layout->gfsk_dphi_capacity) &&
+		(ctx->gfsk_scratch.pulse_capacity >= layout->gfsk_pulse_capacity);
+}
+
+static bool gcft8_tx_context_preallocate(gcft8_tx_context_t* ctx, const gcft8_mode_config_t* mode_cfg, int sample_rate)
+{
+	gcft8_tx_audio_layout_t layout;
+
+	if (!gcft8_tx_audio_layout_for_mode(mode_cfg, sample_rate, &layout))
+		return false;
+
+	return gcft8_tx_context_ensure(ctx, (size_t)layout.num_total_samples) &&
+		gfsk_scratch_ensure(&ctx->gfsk_scratch, layout.gfsk_dphi_capacity, layout.gfsk_pulse_capacity);
 }
 
 static void gcft8_tx_context_free(gcft8_tx_context_t* ctx)
@@ -3545,6 +3620,7 @@ static void TX_FT8()
 			if((tx_index>-1) && !gcft8_shutdown_requested()){
 				
 				const gcft8_mode_config_t* mode_cfg = gcft8_current_mode_config();
+				gcft8_tx_audio_layout_t tx_layout;
 				clear_status_line();
 				printf("Resp to \033[1;31m %s \033[0m with seq \033[1;31m %d \033[0m mess \033[1;31m %s \033[0m\n", tx_callsign, tx_index, tx_message);
 			
@@ -3592,40 +3668,35 @@ static void TX_FT8()
 				#endif
 
 				// Third, convert the FSK tones into an audio signal
-				int sample_rate = sound.playback_sound_rate;
-				int num_samples = (int)(0.5f + num_tones * symbol_period * sample_rate); // Number of samples in the data signal
-				int num_lead_silence = (int)(0.5f + mode_cfg->tx_lead_silence * sample_rate);
-				int num_tail_silence = (int)(0.5f + mode_cfg->tx_tail_silence * sample_rate);
-				int num_total_samples = num_lead_silence + num_samples + num_tail_silence;
 				float* signal;
 				int16_t* raw_data;
 				bool waveform_ok;
 
-				if (!gcft8_tx_context_ensure(&gcft8_tx_context, (size_t)num_total_samples))
+				if (!gcft8_tx_audio_layout_for_mode(mode_cfg, (int)sound.playback_sound_rate, &tx_layout) || !gcft8_tx_context_has_capacity(&gcft8_tx_context, &tx_layout))
 				{
-					fprintf(stderr, "Out of memory while allocating TX buffers\n");
+					fprintf(stderr, "TX buffers were not preallocated for %s at %u Hz\n", mode_cfg->name, sound.playback_sound_rate);
 					exit(1);
 				}
 
 				signal = gcft8_tx_context.signal;
 				raw_data = gcft8_tx_context.pcm;
 				
-				for (int i = 0; i < num_total_samples; i++)
+				for (int i = 0; i < tx_layout.num_total_samples; i++)
 				{
 					signal[i] = 0.0f;
 				}
 				
 				if (mode_cfg->protocol == FTX_PROTOCOL_FT2)
-					waveform_ok = synth_ft2_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence, &gcft8_tx_context.gfsk_scratch);
+					waveform_ok = synth_ft2_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, tx_layout.sample_rate, signal + tx_layout.num_lead_silence, &gcft8_tx_context.gfsk_scratch);
 				else
-					waveform_ok = synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, sample_rate, signal + num_lead_silence, &gcft8_tx_context.gfsk_scratch);
+					waveform_ok = synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, tx_layout.sample_rate, signal + tx_layout.num_lead_silence, &gcft8_tx_context.gfsk_scratch);
 				if (!waveform_ok)
 				{
-					fprintf(stderr, "Out of memory while synthesizing TX waveform\n");
+					fprintf(stderr, "Error while synthesizing TX waveform\n");
 					exit(1);
 				}
 
-				for (int i = 0; i < num_total_samples; i++)
+				for (int i = 0; i < tx_layout.num_total_samples; i++)
 				{
 					float x = signal[i];
 					if (x > 1.0)
@@ -3657,7 +3728,7 @@ static void TX_FT8()
 				count = 0;
 				do
 				{
-					snd_pcm_uframes_t frame_length = (snd_pcm_uframes_t)(num_total_samples - count);
+					snd_pcm_uframes_t frame_length = (snd_pcm_uframes_t)(tx_layout.num_total_samples - count);
 					snd_pcm_sframes_t frames;
 
 					if (frame_length > (snd_pcm_uframes_t)sound.playback_buffer_frames)
@@ -3680,9 +3751,9 @@ static void TX_FT8()
 					
 					
 
-				} while (!gcft8_shutdown_requested() && count < num_total_samples);
+				} while (!gcft8_shutdown_requested() && count < tx_layout.num_total_samples);
 				
-				if ((count == num_total_samples) && !gcft8_shutdown_requested())
+				if ((count == tx_layout.num_total_samples) && !gcft8_shutdown_requested())
 				{
 					snd_pcm_drain(sound.playback_handle);
 				}
@@ -3690,7 +3761,7 @@ static void TX_FT8()
 				{
 					snd_pcm_drop(sound.playback_handle);
 				}
-				tx_completed = (count == num_total_samples) && !gcft8_shutdown_requested();
+				tx_completed = (count == tx_layout.num_total_samples) && !gcft8_shutdown_requested();
 				
 				tranceiver_rtx(GCFT8_TRX_RX);
 
@@ -4155,6 +4226,12 @@ int main (int argc, char *argv[])
 	playback_audioInit();
 	
 	const gcft8_mode_config_t* startup_mode_cfg = gcft8_current_mode_config();
+	if (!gcft8_tx_context_preallocate(&gcft8_tx_context, startup_mode_cfg, (int)sound.playback_sound_rate))
+	{
+		fprintf(stderr, "Out of memory while preallocating TX buffers for %s at %u Hz\n", startup_mode_cfg->name, sound.playback_sound_rate);
+		exit(1);
+	}
+
 	char startup_snr_min_text[32];
 	char startup_prefix_filter[256];
 	char startup_sp_tag_filter[256];
