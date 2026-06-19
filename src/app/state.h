@@ -23,7 +23,7 @@ typedef enum
 
 #define GCFT8_MAX_QSO_SESSIONS 128
 #define GCFT8_QSO_SESSION_TTL_SEC 900
-#define GCFT8_MAX_SAME_TX_REPEATS 2
+#define GCFT8_MAX_SAME_TX_REPEATS 6
 #define GCFT8_SNR_INVALID (-2147483647 - 1)
 
 typedef struct

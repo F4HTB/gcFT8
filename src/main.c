@@ -124,7 +124,8 @@ typedef enum
 	GCFT8_REJECT_SNR,
 	GCFT8_REJECT_PREFIX,
 	GCFT8_REJECT_LOCATOR_ZONE,
-	GCFT8_REJECT_SP_TAG
+	GCFT8_REJECT_SP_TAG,
+	GCFT8_REJECT_MAX_REPEATS
 } gcft8_reject_reason_t;
 
 typedef enum
@@ -133,7 +134,8 @@ typedef enum
 	GCFT8_DISPLAY_FOR_LOCAL,
 	GCFT8_DISPLAY_CQ_CANDIDATE,
 	GCFT8_DISPLAY_ALREADY_WORKED,
-	GCFT8_DISPLAY_FILTERED
+	GCFT8_DISPLAY_FILTERED,
+	GCFT8_DISPLAY_MAX_REPEATS
 } gcft8_display_class_t;
 
 typedef struct
@@ -274,6 +276,7 @@ static char gcft8_only_sp_tags[GCFT8_MAX_SP_TAGS][GCFT8_SP_TAG_TEXT_SIZE];
 static size_t gcft8_only_sp_tag_count;
 static gcft8_locator_zone_t gcft8_locator_zones[GCFT8_MAX_LOCATOR_ZONES];
 static size_t gcft8_locator_zone_count;
+static int gcft8_max_same_tx_repeats = GCFT8_MAX_SAME_TX_REPEATS;
 static HashTable* ht_callsigntable_for_filter;
 static gcft8_tx_context_t gcft8_tx_context;
 static gcft8_rx_context_t gcft8_rx_context;
@@ -281,6 +284,7 @@ static gcft8_rx_context_t gcft8_rx_context;
 static bool gcft8_snr_filter_rejects(int snr);
 static bool gcft8_prefix_filter_rejects(const char* callsign);
 static bool gcft8_locator_zone_filter_rejects(const char* locator);
+static bool gcft8_cq_repeat_guard_rejects(const char* callsign);
 static void printDateTime_log(void);
 static void tranceiver_rtx(gcft8_trx_state_t ptt);
 static void gcft8_qso_sessions_init(void);
@@ -500,6 +504,9 @@ static gcft8_reject_reason_t gcft8_cq_reject_reason(const gcft8_rx_candidate_t* 
 	if (gcft8_sp_tag_filter_rejects(candidate->view.cq_tag))
 		return GCFT8_REJECT_SP_TAG;
 
+	if (gcft8_cq_repeat_guard_rejects(candidate->view.from_call))
+		return GCFT8_REJECT_MAX_REPEATS;
+
 	return GCFT8_REJECT_NONE;
 }
 
@@ -515,6 +522,9 @@ static gcft8_display_class_t gcft8_display_class_for_candidate(const gcft8_rx_ca
 	{
 		if (candidate->reject_reason == GCFT8_REJECT_ALREADY_WORKED)
 			return GCFT8_DISPLAY_ALREADY_WORKED;
+
+		if (candidate->reject_reason == GCFT8_REJECT_MAX_REPEATS)
+			return GCFT8_DISPLAY_MAX_REPEATS;
 
 		if (candidate->reject_reason != GCFT8_REJECT_NONE)
 			return GCFT8_DISPLAY_FILTERED;
@@ -549,6 +559,10 @@ static void gcft8_display_rx_candidate(const gcft8_rx_candidate_t* candidate)
 		break;
 	case GCFT8_DISPLAY_FILTERED:
 		color_start = "\033[1;35m";
+		color_end = "\033[0m";
+		break;
+	case GCFT8_DISPLAY_MAX_REPEATS:
+		color_start = "\033[1;90m";
 		color_end = "\033[0m";
 		break;
 	case GCFT8_DISPLAY_NORMAL:
@@ -958,6 +972,26 @@ static const char* ft8_filter_mode_name(int filter_mode)
 	default:
 		return "Unknown";
 	}
+}
+
+static bool gcft8_parse_int_range(const char* value, int min_value, int max_value, int* result)
+{
+	char* endptr = NULL;
+	long parsed;
+
+	if ((value == NULL) || (value[0] == '\0') || (result == NULL) || (min_value > max_value))
+		return false;
+
+	errno = 0;
+	parsed = strtol(value, &endptr, 10);
+	if ((errno == ERANGE) || (endptr == value) || (endptr == NULL) || (*endptr != '\0'))
+		return false;
+
+	if ((parsed < min_value) || (parsed > max_value))
+		return false;
+
+	*result = (int)parsed;
+	return true;
 }
 
 static bool gcft8_parse_snr_min(const char* value, int* snr_min)
@@ -1702,15 +1736,15 @@ static int gcft8_estimate_snr(const ftx_waterfall_t* wf, const ftx_candidate_t* 
 
 
 FT8info FT8 = {
-	.Local_CALLSIGN = {'F','4','J','J','J',0},
-	.Local_LOCATOR = {'J','N','3','8',0},
+	.Local_CALLSIGN = "",
+	.Local_LOCATOR = "",
 	
 	.TRX_status = GCFT8_TRX_RX,
 	.TRX_status_lock = PTHREAD_MUTEX_INITIALIZER,
 	.RX_status_cond = PTHREAD_COND_INITIALIZER,
 	.TX_status_cond = PTHREAD_COND_INITIALIZER,
 	
-	.Tranceiver_VFOA_Freq = 14074000,
+	.Tranceiver_VFOA_Freq = 0,
 	
 	.log_file_name = "QSO_F4JJJ.adif",
 	.beep_on_log=0,
@@ -1721,10 +1755,10 @@ FT8info FT8 = {
 
 /* Global sound info. */
 soundInfo sound={
-	.capture_sound_device = (char*)"default",
+	.capture_sound_device = NULL,
 	.capture_sound_rate = 12000,
 	
-	.playback_sound_device = (char*)"default",
+	.playback_sound_device = NULL,
 	.playback_buffer_frames = 1024,
 	.playback_sound_rate = 12000
 };
@@ -1732,7 +1766,7 @@ soundInfo sound={
 /* Global serial info. */
 
 serial_t serial = {
-	.pathname="/dev/ttyACM0",
+	.pathname="",
 	.rtscts=0,
 	.xonxoff=0,
 	.baud=9600,
@@ -2326,6 +2360,8 @@ static void RX_FT8()
 			{
 				break;
 			}
+
+			print_slot_separator(mode_cfg, "RX");
 			
 			snd_pcm_reset(sound.capture_handle);
 			
@@ -2367,8 +2403,6 @@ static void RX_FT8()
 			printf( "Max magnitude: %.1f dB\n", mon->max_mag);
 			#endif
 			
-			print_slot_separator(mode_cfg, "RX");
-
 			// Find top candidates by Costas sync score and localize them in time and frequency
 			int num_candidates = ftx_find_candidates(&mon->wf, kMax_candidates, candidate_list, kMin_score);
 
@@ -2658,6 +2692,18 @@ static int gcft8_qso_find_session(const char* callsign)
 	return -1;
 }
 
+static bool gcft8_cq_repeat_guard_rejects(const char* callsign)
+{
+	int idx = gcft8_qso_find_session(callsign);
+	const gcft8_qso_session_t* session;
+
+	if (idx < 0)
+		return false;
+
+	session = &FT8.QSO_sessions[idx];
+	return !session->logged && !session->log_pending && (session->last_tx_seq == 0) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats);
+}
+
 static int gcft8_qso_allocate_session(time_t now)
 {
 	int expired_idx = -1;
@@ -2812,7 +2858,7 @@ static bool gcft8_qso_update_from_direct_candidate(const gcft8_rx_candidate_t* c
 
 	if (session->next_tx_seq != action.tx_seq)
 		session->last_progress_at = now;
-	if ((action.tx_seq >= 0) && (session->last_tx_seq == action.tx_seq) && (session->same_tx_repeat_count >= GCFT8_MAX_SAME_TX_REPEATS))
+	if ((action.tx_seq >= 0) && (session->last_tx_seq == action.tx_seq) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats))
 	{
 		session->next_tx_seq = -1;
 		session->log_after_tx_73 = false;
@@ -2859,7 +2905,7 @@ static int gcft8_qso_update_from_cq_candidate(const gcft8_rx_candidate_t* candid
 	gcft8_qso_update_locator(session, candidate->view.locator);
 	session->last_progress_at = now;
 
-	if ((session->last_tx_seq == 0) && (session->same_tx_repeat_count >= GCFT8_MAX_SAME_TX_REPEATS))
+	if ((session->last_tx_seq == 0) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats))
 	{
 		session->next_tx_seq = -1;
 		return -1;
@@ -2877,7 +2923,7 @@ static int gcft8_qso_tx_priority(const gcft8_qso_session_t* session)
 		return -1000000;
 
 	score = session->next_tx_seq * 100;
-	if ((session->next_tx_seq == session->last_tx_seq) && (session->same_tx_repeat_count >= GCFT8_MAX_SAME_TX_REPEATS))
+	if ((session->next_tx_seq == session->last_tx_seq) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats))
 		score -= 1000;
 	return score;
 }
@@ -3822,18 +3868,19 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  %s [options]\n"
 		"\n"
 		"Example:\n"
-		"  %s --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --beep\n"
+		"  %s --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --max-same-tx-repeats %d --beep\n"
 		"\n"
 		"Options:\n"
 		"  --help                     Show this help and exit\n"
 		"  --mode <ft8|ft4|ft2>       Digital mode (default: ft8)\n"
-		"  --sound-device <device>    ALSA capture and playback device, prefer plughw (default: default)\n"
-		"  --callsign <callsign>      Your callsign (default: F4JJJ)\n"
-		"  --locator <locator>        Your Maidenhead locator (default: JN38)\n"
-		"  --frequency <hz>           TRX frequency in Hz, exclusive with --band\n"
-		"  --band <band>              Mode-specific band frequency, exclusive with --frequency; suffix m is allowed\n"
-		"  --serial-device <device>   Transceiver serial device (default: /dev/ttyACM0)\n"
+		"  --sound-device <device>    Required ALSA capture and playback device, prefer plughw\n"
+		"  --callsign <callsign>      Required local callsign\n"
+		"  --locator <locator>        Required Maidenhead locator\n"
+		"  --frequency <hz>           Required if --band is absent; exclusive with --band\n"
+		"  --band <band>              Required if --frequency is absent; exclusive with --frequency; suffix m is allowed\n"
+		"  --serial-device <device>   Required transceiver serial device\n"
 		"  --filter <mode>            Operating/filter mode (default: 0, listen only)\n"
+		"  --max-same-tx-repeats <n>  Maximum repeated TX attempts for the same sequence, 1-100 (default: %d)\n"
 		"  --snr-min <snr>            Reject CQ candidates below this SNR, for example -18\n"
 		"  --only-prefix <list>       Only auto-select CQ callsigns with these prefixes, for example JA,VK,ZL\n"
 		"  --only-sp-tag <list>       Only auto-select special CQ tags, for example POTA,SOTA,DX\n"
@@ -3852,7 +3899,9 @@ static void print_usage(const char* program_name, FILE* stream)
 		"Bands:\n"
 		"  Band       FT8 Hz    FT4 Hz    FT2 Hz\n",
 		program_name,
-		program_name);
+		program_name,
+		GCFT8_MAX_SAME_TX_REPEATS,
+		GCFT8_MAX_SAME_TX_REPEATS);
 
 	for (size_t idx = 0; idx < sizeof(gcft8_band_frequencies) / sizeof(gcft8_band_frequencies[0]); ++idx)
 	{
@@ -3879,7 +3928,8 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  Red      Local station related message\n"
 		"  Blue     CQ candidate\n"
 		"  Yellow   Already worked callsign\n"
-		"  Magenta  Filtered CQ, missing locator/callsign, or CQ rejected by optional filters\n");
+		"  Magenta  Filtered CQ, missing locator/callsign, or CQ rejected by optional filters\n"
+		"  Gray     CQ rejected by max repeated TX attempts\n");
 }
 
 enum
@@ -3897,12 +3947,17 @@ enum
 	CLI_OPTION_ONLY_PREFIX,
 	CLI_OPTION_ONLY_SP_TAG,
 	CLI_OPTION_ONLY_LOCATOR_ZONE,
-	CLI_OPTION_SERIAL_DEVICE
+	CLI_OPTION_SERIAL_DEVICE,
+	CLI_OPTION_MAX_SAME_TX_REPEATS
 };
 
 int main (int argc, char *argv[])
 {
 	int c;
+	bool callsign_option_used = false;
+	bool locator_option_used = false;
+	bool sound_device_option_used = false;
+	bool serial_device_option_used = false;
 	bool frequency_option_used = false;
 	bool band_option_used = false;
 	char selected_band[16] = "";
@@ -3916,6 +3971,7 @@ int main (int argc, char *argv[])
 		{ "frequency", required_argument, NULL, CLI_OPTION_FREQUENCY },
 		{ "band", required_argument, NULL, CLI_OPTION_BAND },
 		{ "filter", required_argument, NULL, CLI_OPTION_FILTER },
+		{ "max-same-tx-repeats", required_argument, NULL, CLI_OPTION_MAX_SAME_TX_REPEATS },
 		{ "snr-min", required_argument, NULL, CLI_OPTION_SNR_MIN },
 		{ "only-prefix", required_argument, NULL, CLI_OPTION_ONLY_PREFIX },
 		{ "only-sp-tag", required_argument, NULL, CLI_OPTION_ONLY_SP_TAG },
@@ -3934,13 +3990,16 @@ int main (int argc, char *argv[])
 				FT8.beep_on_log = 1;
 				break;
 			case CLI_OPTION_SOUND_DEVICE:
+				sound_device_option_used = true;
 				sound.capture_sound_device = optarg;
 				sound.playback_sound_device = optarg;
 				break;
 			case CLI_OPTION_CALLSIGN:
+				callsign_option_used = true;
 				copy_text(FT8.Local_CALLSIGN, sizeof(FT8.Local_CALLSIGN), optarg);
 				break;
 			case CLI_OPTION_LOCATOR:
+				locator_option_used = true;
 				copy_text(FT8.Local_LOCATOR, sizeof(FT8.Local_LOCATOR), optarg);
 				break;
 			case CLI_OPTION_MODE:
@@ -3953,7 +4012,12 @@ int main (int argc, char *argv[])
 				break;
 			case CLI_OPTION_FREQUENCY:
 				frequency_option_used = true;
-				FT8.Tranceiver_VFOA_Freq = atoi(optarg);
+				if (!gcft8_parse_int_range(optarg, 1, INT_MAX, &FT8.Tranceiver_VFOA_Freq))
+				{
+					fprintf(stderr, "Invalid frequency '%s'. Use a positive integer frequency in Hz.\n", optarg);
+					print_usage(argv[0], stderr);
+					exit(1);
+				}
 				break;
 			case CLI_OPTION_BAND:
 				band_option_used = true;
@@ -3963,6 +4027,14 @@ int main (int argc, char *argv[])
 				if (!ft8_parse_filter_mode(optarg, &FT8.filter_on_cq))
 				{
 					fprintf(stderr, "Invalid filter '%s'. Allowed filters: 0, 1, 2, 3, 4, 5, 6.\n", optarg);
+					print_usage(argv[0], stderr);
+					exit(1);
+				}
+				break;
+			case CLI_OPTION_MAX_SAME_TX_REPEATS:
+				if (!gcft8_parse_int_range(optarg, 1, 100, &gcft8_max_same_tx_repeats))
+				{
+					fprintf(stderr, "Invalid max same TX repeats '%s'. Use an integer from 1 to 100.\n", optarg);
 					print_usage(argv[0], stderr);
 					exit(1);
 				}
@@ -4001,6 +4073,7 @@ int main (int argc, char *argv[])
 				}
 				break;
 			case CLI_OPTION_SERIAL_DEVICE:
+				serial_device_option_used = true;
 				copy_text(serial.pathname, sizeof(serial.pathname), optarg);
 				break;
 			default:
@@ -4021,6 +4094,36 @@ int main (int argc, char *argv[])
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
+	if (!frequency_option_used && !band_option_used)
+	{
+		fprintf(stderr, "Missing required frequency selection: use either --frequency or --band.\n");
+		print_usage(argv[0], stderr);
+		exit(1);
+	}
+	if (!callsign_option_used || (FT8.Local_CALLSIGN[0] == '\0'))
+	{
+		fprintf(stderr, "Missing required --callsign.\n");
+		print_usage(argv[0], stderr);
+		exit(1);
+	}
+	if (!locator_option_used || (FT8.Local_LOCATOR[0] == '\0'))
+	{
+		fprintf(stderr, "Missing required --locator.\n");
+		print_usage(argv[0], stderr);
+		exit(1);
+	}
+	if (!sound_device_option_used || (sound.capture_sound_device == NULL) || (sound.capture_sound_device[0] == '\0'))
+	{
+		fprintf(stderr, "Missing required --sound-device.\n");
+		print_usage(argv[0], stderr);
+		exit(1);
+	}
+	if (!serial_device_option_used || (serial.pathname[0] == '\0'))
+	{
+		fprintf(stderr, "Missing required --serial-device.\n");
+		print_usage(argv[0], stderr);
+		exit(1);
+	}
 
 	if (band_option_used)
 	{
@@ -4036,12 +4139,6 @@ int main (int argc, char *argv[])
 	else if (frequency_option_used)
 	{
 		gcft8_set_filter_frequency_context(FT8.Tranceiver_VFOA_Freq);
-	}
-	else if (!frequency_option_used)
-	{
-		(void)gcft8_frequency_for_band("20", gcft8_mode, &FT8.Tranceiver_VFOA_Freq);
-		gcft8_set_filter_band_context("20");
-		gcft8_filter_frequency_mhz = FT8.Tranceiver_VFOA_Freq / 1000000;
 	}
 
 	install_signal_handlers();
@@ -4078,6 +4175,7 @@ int main (int argc, char *argv[])
 		"-Sound device is %s\n"
 		"-ADIF log file is %s\n"
 		"-CQ filter method is %d (%s)\n"
+		"-Max same TX repeats is %d\n"
 		"-SNR minimum filter is %s\n"
 		"-Prefix filter is %s\n"
 		"-Special CQ tag filter is %s\n"
@@ -4092,6 +4190,7 @@ int main (int argc, char *argv[])
 		FT8.log_file_name,
 		FT8.filter_on_cq,
 		ft8_filter_mode_name(FT8.filter_on_cq),
+		gcft8_max_same_tx_repeats,
 		startup_snr_min_text,
 		startup_prefix_filter,
 		startup_sp_tag_filter,
