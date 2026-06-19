@@ -41,6 +41,8 @@
 #define GCFT8_MAX_SP_TAGS 64
 #define GCFT8_SP_TAG_TEXT_SIZE 8
 #define GCFT8_MAX_LOCATOR_ZONES 64
+#define GCFT8_TX_MESSAGE_TEXT_SIZE 50
+#define GCFT8_ADIF_RECORD_TEXT_SIZE 512
 
 #define FT8_FILTER_LISTEN_ONLY 0
 #define FT8_FILTER_RANDOM_CQ 1
@@ -145,6 +147,27 @@ typedef struct
 	gcft8_reject_reason_t reject_reason;
 	gcft8_display_class_t display_class;
 } gcft8_rx_candidate_t;
+
+typedef enum
+{
+	GCFT8_QSO_ACTION_NONE,
+	GCFT8_QSO_ACTION_TX,
+	GCFT8_QSO_ACTION_LOG_NOW,
+	GCFT8_QSO_ACTION_TX_AND_LOG_AFTER
+} gcft8_qso_action_type_t;
+
+typedef struct
+{
+	gcft8_qso_action_type_t type;
+	int tx_seq;
+} gcft8_qso_action_t;
+
+typedef struct
+{
+	char adif_record[GCFT8_ADIF_RECORD_TEXT_SIZE];
+	char callsign[20];
+	int session_index;
+} gcft8_pending_log_t;
 
 typedef struct
 {
@@ -258,9 +281,20 @@ static gcft8_rx_context_t gcft8_rx_context;
 static bool gcft8_snr_filter_rejects(int snr);
 static bool gcft8_prefix_filter_rejects(const char* callsign);
 static bool gcft8_locator_zone_filter_rejects(const char* locator);
-static int get_seq_qso_to_rep(const char* mess, bool* flaglog);
 static void printDateTime_log(void);
 static void tranceiver_rtx(gcft8_trx_state_t ptt);
+static void gcft8_qso_sessions_init(void);
+static void gcft8_qso_prune_expired(time_t now);
+static bool gcft8_qso_update_from_direct_candidate(const gcft8_rx_candidate_t* candidate, time_t now, bool* tx_needed);
+static int gcft8_qso_update_from_cq_candidate(const gcft8_rx_candidate_t* candidate, time_t now);
+static int gcft8_qso_select_tx_session(void);
+static bool gcft8_qso_build_tx_message(const gcft8_qso_session_t* session, char* dst, size_t dst_size);
+static void gcft8_qso_mark_tx_sent(int session_idx, int sent_seq, bool tx_ok, time_t now);
+static bool gcft8_qso_take_pending_log(gcft8_pending_log_t* pending_log);
+static void gcft8_qso_finish_pending_log(const gcft8_pending_log_t* pending_log, bool success);
+static bool log_adif_qso(const char* adif_record);
+static void log_qso_to_filter_table(const char* callsign);
+static void gcft8_flush_pending_logs(void);
 
 static bool gcft8_shutdown_requested(void)
 {
@@ -302,6 +336,28 @@ static void gcft8_decoded_message_view_init(gcft8_decoded_message_view_t* view)
 	memset(view, 0, sizeof(*view));
 }
 
+static bool gcft8_is_signed_number_text(const char* text)
+{
+	if ((text == NULL) || ((text[0] != '-') && (text[0] != '+')) || !isdigit((unsigned char)text[1]))
+		return false;
+
+	for (size_t idx = 2; text[idx] != '\0'; ++idx)
+	{
+		if (!isdigit((unsigned char)text[idx]))
+			return false;
+	}
+
+	return true;
+}
+
+static bool gcft8_field_is_locator(const ftx_decoded_field_t* field)
+{
+	if ((field == NULL) || (field->type != FTX_FIELD_GRID) || (strlen(field->text) != 4))
+		return false;
+
+	return true;
+}
+
 static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, const char* local_callsign, gcft8_decoded_message_view_t* view)
 {
 	const ftx_decoded_field_t* field0;
@@ -330,7 +386,7 @@ static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, 
 		if ((field1 != NULL) && (field1->type == FTX_FIELD_CALL))
 			copy_text(view->from_call, sizeof(view->from_call), field1->text);
 
-		if ((field2 != NULL) && (field2->type == FTX_FIELD_GRID) && (strlen(field2->text) == 4))
+		if (gcft8_field_is_locator(field2))
 		{
 			copy_text(view->locator, sizeof(view->locator), field2->text);
 			view->has_locator = true;
@@ -346,7 +402,7 @@ static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, 
 		if (field2 != NULL)
 		{
 			copy_text(view->message, sizeof(view->message), field2->text);
-			if ((field2->type == FTX_FIELD_GRID) && (strlen(field2->text) == 4))
+			if (gcft8_field_is_locator(field2))
 			{
 				copy_text(view->locator, sizeof(view->locator), field2->text);
 				view->has_locator = true;
@@ -502,30 +558,6 @@ static void gcft8_display_rx_candidate(const gcft8_rx_candidate_t* candidate)
 
 	printDateTime_log();
 	printf(" %d %3d %+4.2f %4.0f ~  %s%s%s\n", candidate->snr, candidate->score, candidate->time_sec, candidate->frequency_hz, color_start, candidate->decoded.text, color_end);
-}
-
-static bool gcft8_direct_response_index(const gcft8_decoded_message_view_t* view, int* response_index)
-{
-	bool flaglog = false;
-	int seq;
-
-	if ((view == NULL) || (response_index == NULL) || !view->is_for_local)
-		return false;
-
-	seq = get_seq_qso_to_rep(view->message, &flaglog);
-	if ((seq >= 0) || flaglog)
-	{
-		*response_index = -1;
-		return true;
-	}
-
-	if (view->has_locator)
-	{
-		*response_index = 1;
-		return true;
-	}
-
-	return false;
 }
 
 static bool gcft8_ensure_float_buffer(float** buffer, size_t* capacity, size_t required)
@@ -903,6 +935,29 @@ static bool ft8_parse_filter_mode(const char* value, int* filter_mode)
 
 	*filter_mode = result;
 	return true;
+}
+
+static const char* ft8_filter_mode_name(int filter_mode)
+{
+	switch (filter_mode)
+	{
+	case FT8_FILTER_LISTEN_ONLY:
+		return "Listen only, no automatic TX";
+	case FT8_FILTER_RANDOM_CQ:
+		return "Random CQ selection";
+	case FT8_FILTER_BEST_DECODE_SCORE:
+		return "Best decode score";
+	case FT8_FILTER_MAX_DISTANCE:
+		return "Maximum distance";
+	case FT8_FILTER_MIN_DISTANCE:
+		return "Minimum distance";
+	case FT8_FILTER_MAX_SNR:
+		return "Maximum SNR";
+	case FT8_FILTER_MIN_SNR:
+		return "Minimum SNR";
+	default:
+		return "Unknown";
+	}
 }
 
 static bool gcft8_parse_snr_min(const char* value, int* snr_min)
@@ -1649,16 +1704,6 @@ static int gcft8_estimate_snr(const ftx_waterfall_t* wf, const ftx_candidate_t* 
 FT8info FT8 = {
 	.Local_CALLSIGN = {'F','4','J','J','J',0},
 	.Local_LOCATOR = {'J','N','3','8',0},
-	.TX_enable = 1,
-	
-	.QSO_dist_CALLSIGN = "",
-	.QSO_dist_LOCATOR = "",
-	.QSO_dist_MESSAGE = "",
-	.QSO_dist_SNR = 0,
-	.QSO_dist_FREQUENCY = 0,
-	
-	.QSO_RESPONSES = {{0}},
-	.QSO_Index_to_rep=-1,
 	
 	.TRX_status = GCFT8_TRX_RX,
 	.TRX_status_lock = PTHREAD_MUTEX_INITIALIZER,
@@ -1668,8 +1713,6 @@ FT8info FT8 = {
 	.Tranceiver_VFOA_Freq = 14074000,
 	
 	.log_file_name = "QSO_F4JJJ.adif",
-	.infos_to_log = {0},
-	.log_dist_CALLSIGN_for_filter = "",
 	.beep_on_log=0,
 	
 	.filter_on_cq = 0
@@ -2330,7 +2373,13 @@ static void RX_FT8()
 			int num_candidates = ftx_find_candidates(&mon->wf, kMax_candidates, candidate_list, kMin_score);
 
 			int cq_candidate_count = 0;
-			bool direct_message_selected = false;
+			bool rx_requested_tx = false;
+			bool should_unlock_tx = false;
+			time_t rx_now = time(NULL);
+
+			pthread_mutex_lock(&FT8.TRX_status_lock);
+			gcft8_qso_prune_expired(rx_now);
+			pthread_mutex_unlock(&FT8.TRX_status_lock);
 
 			// Hash table for decoded messages (to check for duplicates)
 			int num_decoded = 0;
@@ -2418,39 +2467,25 @@ static void RX_FT8()
 
 				if (rx_candidate.view.is_for_local)
 				{
-					int response_index = -1;
-					if (!direct_message_selected && gcft8_direct_response_index(&rx_candidate.view, &response_index))
+					if (!ft8_listen_only_filter_active())
 					{
-						direct_message_selected = true;
-						cq_candidate_count = 0;
-
-						if (!ft8_listen_only_filter_active())
+						bool tx_needed = false;
+						pthread_mutex_lock(&FT8.TRX_status_lock);
+						if (gcft8_qso_update_from_direct_candidate(&rx_candidate, rx_now, &tx_needed))
 						{
-							pthread_mutex_lock(&FT8.TRX_status_lock);
-
-							if (strcmp(FT8.QSO_dist_CALLSIGN, rx_candidate.view.from_call) != 0)
-								FT8.QSO_dist_LOCATOR[0] = '\0';
-							copy_text(FT8.QSO_dist_CALLSIGN, sizeof(FT8.QSO_dist_CALLSIGN), rx_candidate.view.from_call);
-							copy_text(FT8.QSO_dist_MESSAGE, sizeof(FT8.QSO_dist_MESSAGE), rx_candidate.view.message);
-							if (rx_candidate.view.has_locator)
-								copy_text(FT8.QSO_dist_LOCATOR, sizeof(FT8.QSO_dist_LOCATOR), rx_candidate.view.locator);
-							FT8.QSO_dist_FREQUENCY=freq_hz;
-							FT8.QSO_dist_SNR = rx_candidate.snr;
-							FT8.QSO_Index_to_rep = response_index;
-
-							pthread_mutex_unlock(&FT8.TRX_status_lock);
-
-							unlock_TX_thread();
+							if (tx_needed)
+								rx_requested_tx = true;
 						}
+						pthread_mutex_unlock(&FT8.TRX_status_lock);
 					}
 				}
-				else if (!direct_message_selected && rx_candidate.view.is_cq && (rx_candidate.reject_reason == GCFT8_REJECT_NONE) && (cq_candidate_count < kMax_candidates))
+				else if (rx_candidate.view.is_cq && (rx_candidate.reject_reason == GCFT8_REJECT_NONE) && (cq_candidate_count < kMax_candidates))
 				{
 					cq_candidates[cq_candidate_count++] = rx_candidate;
 				}
 			}
-						
-			if((cq_candidate_count>0) && !ft8_listen_only_filter_active() && !gcft8_shutdown_requested()){
+
+			if((cq_candidate_count>0) && !rx_requested_tx && !ft8_listen_only_filter_active() && !gcft8_shutdown_requested()){
 				int index_from_ope = 0;
 				float dist = 0;
 				int actusnr;
@@ -2518,20 +2553,35 @@ static void RX_FT8()
 				}
 				
 				pthread_mutex_lock(&FT8.TRX_status_lock);
-				
-				copy_text(FT8.QSO_dist_CALLSIGN, sizeof(FT8.QSO_dist_CALLSIGN), cq_candidates[index_from_ope].view.from_call);
-				copy_text(FT8.QSO_dist_LOCATOR, sizeof(FT8.QSO_dist_LOCATOR), cq_candidates[index_from_ope].view.locator);
-				FT8.QSO_Index_to_rep=0;
-				FT8.QSO_dist_FREQUENCY=cq_candidates[index_from_ope].frequency_hz;
-				
+				int selected_session = gcft8_qso_update_from_cq_candidate(&cq_candidates[index_from_ope], rx_now);
 				pthread_mutex_unlock(&FT8.TRX_status_lock);
 				
-				clear_status_line();
-				printf("*Selected for new QSO: \033[1;31m%s at %s on %f hz (seq QSO on %d) \033[0m\n", FT8.QSO_dist_CALLSIGN,FT8.QSO_dist_LOCATOR,FT8.QSO_dist_FREQUENCY,FT8.QSO_Index_to_rep);
-				
-				unlock_TX_thread();
+				if (selected_session >= 0)
+				{
+					clear_status_line();
+					printf("*Selected for new QSO: \033[1;31m%s at %s on %f hz (seq QSO on %d) \033[0m\n",
+						cq_candidates[index_from_ope].view.from_call,
+						cq_candidates[index_from_ope].view.locator,
+						cq_candidates[index_from_ope].frequency_hz,
+						0);
+				}
 				
 			}
+
+			if (!ft8_listen_only_filter_active() && !gcft8_shutdown_requested())
+			{
+				pthread_mutex_lock(&FT8.TRX_status_lock);
+				int selected_session = gcft8_qso_select_tx_session();
+				if (selected_session >= 0)
+					should_unlock_tx = true;
+				pthread_mutex_unlock(&FT8.TRX_status_lock);
+			}
+
+
+			gcft8_flush_pending_logs();
+
+			if (should_unlock_tx)
+				unlock_TX_thread();
 			
 			
 			if(!num_decoded){printDateTime_log();printf(" N/A\n");}
@@ -2554,78 +2604,388 @@ static void RX_FT8()
 
 }
 
-static void gen_FT8_responses()
+static void gcft8_qso_session_clear(gcft8_qso_session_t* session)
 {
-	snprintf(FT8.QSO_RESPONSES[0], sizeof(FT8.QSO_RESPONSES[0]), "%s %s %s", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.Local_LOCATOR);
-	snprintf(FT8.QSO_RESPONSES[1], sizeof(FT8.QSO_RESPONSES[1]), "%s %s %+03d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
-	snprintf(FT8.QSO_RESPONSES[2], sizeof(FT8.QSO_RESPONSES[2]), "%s %s R%+03d", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN, FT8.QSO_dist_SNR);
-	snprintf(FT8.QSO_RESPONSES[3], sizeof(FT8.QSO_RESPONSES[3]), "%s %s RRR", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
-	snprintf(FT8.QSO_RESPONSES[4], sizeof(FT8.QSO_RESPONSES[4]), "%s %s 73", FT8.QSO_dist_CALLSIGN, FT8.Local_CALLSIGN);
+	if (session == NULL)
+		return;
+
+	memset(session, 0, sizeof(*session));
+	session->last_rx_snr = GCFT8_SNR_INVALID;
+	session->report_sent_snr = GCFT8_SNR_INVALID;
+	session->next_tx_seq = -1;
+	session->last_tx_seq = -1;
 }
 
-static void Reinit_FT8_QSO()
+static void gcft8_qso_session_begin(gcft8_qso_session_t* session, const char* callsign, time_t now)
 {
-	FT8.QSO_Index_to_rep=-1;
-	for(int i = 0; i<5;i++){
-		FT8.QSO_RESPONSES[i][0] = '\0';
-	}
+	if ((session == NULL) || (callsign == NULL))
+		return;
 
-	FT8.QSO_dist_CALLSIGN[0]=0;
-	FT8.QSO_dist_LOCATOR[0]=0;
-	FT8.QSO_dist_MESSAGE[0]=0;
-	
-	FT8.QSO_dist_SNR=0;
+	gcft8_qso_session_clear(session);
+	session->in_use = true;
+	copy_text(session->callsign, sizeof(session->callsign), callsign);
+	session->started_at = now;
+	session->last_seen_at = now;
+	session->last_progress_at = now;
 }
 
-static bool gcft8_is_signed_number_text(const char* text)
+static void gcft8_qso_sessions_init(void)
 {
-	if ((text == NULL) || ((text[0] != '-') && (text[0] != '+')) || !isdigit((unsigned char)text[1]))
+	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+		gcft8_qso_session_clear(&FT8.QSO_sessions[idx]);
+}
+
+static bool gcft8_qso_session_expired(const gcft8_qso_session_t* session, time_t now)
+{
+	if ((session == NULL) || !session->in_use || session->log_pending)
 		return false;
 
-	for (size_t idx = 2; text[idx] != '\0'; ++idx)
+	return difftime(now, session->last_seen_at) > GCFT8_QSO_SESSION_TTL_SEC;
+}
+
+static int gcft8_qso_find_session(const char* callsign)
+{
+	if ((callsign == NULL) || (callsign[0] == '\0'))
+		return -1;
+
+	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
 	{
-		if (!isdigit((unsigned char)text[idx]))
-			return false;
+		const gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
+		if (session->in_use && (strcmp(session->callsign, callsign) == 0))
+			return idx;
+	}
+
+	return -1;
+}
+
+static int gcft8_qso_allocate_session(time_t now)
+{
+	int expired_idx = -1;
+	int logged_oldest_idx = -1;
+	time_t logged_oldest_time = now;
+
+	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	{
+		gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
+
+		if (!session->in_use)
+			return idx;
+
+		if ((expired_idx < 0) && gcft8_qso_session_expired(session, now))
+			expired_idx = idx;
+
+		if (session->logged && !session->log_pending && ((logged_oldest_idx < 0) || (session->last_seen_at < logged_oldest_time)))
+		{
+			logged_oldest_idx = idx;
+			logged_oldest_time = session->last_seen_at;
+		}
+	}
+
+	if (expired_idx >= 0)
+		return expired_idx;
+
+	return logged_oldest_idx;
+}
+
+static int gcft8_qso_find_or_create_session(const char* callsign, time_t now)
+{
+	int idx = gcft8_qso_find_session(callsign);
+	gcft8_qso_session_t* session;
+
+	if (idx >= 0)
+		return idx;
+
+	idx = gcft8_qso_allocate_session(now);
+	if (idx < 0)
+		return -1;
+
+	session = &FT8.QSO_sessions[idx];
+	gcft8_qso_session_begin(session, callsign, now);
+	return idx;
+}
+
+static void gcft8_qso_update_locator(gcft8_qso_session_t* session, const char* locator)
+{
+	if ((session == NULL) || (locator == NULL) || (strlen(locator) != 4))
+		return;
+
+	copy_text(session->locator, sizeof(session->locator), locator);
+}
+
+static gcft8_qso_action_t gcft8_qso_message_to_action(const gcft8_decoded_message_view_t* view)
+{
+	gcft8_qso_action_t action;
+	action.type = GCFT8_QSO_ACTION_NONE;
+	action.tx_seq = -1;
+
+	if ((view == NULL) || !view->is_for_local)
+		return action;
+
+	if (strcmp(view->message, "RRR") == 0)
+	{
+		action.type = GCFT8_QSO_ACTION_TX_AND_LOG_AFTER;
+		action.tx_seq = 4;
+		return action;
+	}
+
+	if (strcmp(view->message, "RR73") == 0)
+	{
+		action.type = GCFT8_QSO_ACTION_TX_AND_LOG_AFTER;
+		action.tx_seq = 4;
+		return action;
+	}
+
+	if (strcmp(view->message, "73") == 0)
+	{
+		action.type = GCFT8_QSO_ACTION_LOG_NOW;
+		return action;
+	}
+
+	if ((view->message[0] == 'R') && gcft8_is_signed_number_text(view->message + 1))
+	{
+		action.type = GCFT8_QSO_ACTION_TX;
+		action.tx_seq = 3;
+		return action;
+	}
+
+	if (gcft8_is_signed_number_text(view->message))
+	{
+		action.type = GCFT8_QSO_ACTION_TX;
+		action.tx_seq = 2;
+		return action;
+	}
+
+	if (view->has_locator)
+	{
+		action.type = GCFT8_QSO_ACTION_TX;
+		action.tx_seq = 1;
+		return action;
+	}
+
+	return action;
+}
+
+static bool gcft8_qso_action_requires_existing_session(gcft8_qso_action_t action)
+{
+	return (action.type == GCFT8_QSO_ACTION_LOG_NOW) || (action.type == GCFT8_QSO_ACTION_TX_AND_LOG_AFTER);
+}
+
+static bool gcft8_qso_update_from_direct_candidate(const gcft8_rx_candidate_t* candidate, time_t now, bool* tx_needed)
+{
+	gcft8_qso_action_t action;
+	int idx;
+	gcft8_qso_session_t* session;
+
+	if (tx_needed != NULL)
+		*tx_needed = false;
+
+	if ((candidate == NULL) || !candidate->view.is_for_local || (candidate->view.from_call[0] == '\0'))
+		return false;
+
+	action = gcft8_qso_message_to_action(&candidate->view);
+	if (action.type == GCFT8_QSO_ACTION_NONE)
+		return false;
+
+	if (gcft8_qso_action_requires_existing_session(action))
+		idx = gcft8_qso_find_session(candidate->view.from_call);
+	else
+		idx = gcft8_qso_find_or_create_session(candidate->view.from_call, now);
+	if (idx < 0)
+		return false;
+
+	session = &FT8.QSO_sessions[idx];
+	session->last_seen_at = now;
+	session->last_rx_snr = candidate->snr;
+	session->frequency_hz = candidate->frequency_hz;
+	if (candidate->view.has_locator && (session->locator[0] == '\0'))
+		gcft8_qso_update_locator(session, candidate->view.locator);
+
+	if (action.type == GCFT8_QSO_ACTION_LOG_NOW)
+	{
+		session->next_tx_seq = -1;
+		session->ended_at = now;
+		if (!session->logged)
+			session->log_pending = true;
+		session->last_progress_at = now;
+		return true;
+	}
+
+	if (session->next_tx_seq != action.tx_seq)
+		session->last_progress_at = now;
+	if ((action.tx_seq >= 0) && (session->last_tx_seq == action.tx_seq) && (session->same_tx_repeat_count >= GCFT8_MAX_SAME_TX_REPEATS))
+	{
+		session->next_tx_seq = -1;
+		session->log_after_tx_73 = false;
+		return true;
+	}
+	session->next_tx_seq = action.tx_seq;
+	session->log_after_tx_73 = action.type == GCFT8_QSO_ACTION_TX_AND_LOG_AFTER;
+	if (tx_needed != NULL)
+		*tx_needed = action.tx_seq >= 0;
+	return true;
+}
+
+static int gcft8_qso_update_from_cq_candidate(const gcft8_rx_candidate_t* candidate, time_t now)
+{
+	int idx;
+	gcft8_qso_session_t* session;
+
+	if ((candidate == NULL) || !candidate->view.is_cq || (candidate->view.from_call[0] == '\0'))
+		return -1;
+
+	idx = gcft8_qso_find_session(candidate->view.from_call);
+	if (idx >= 0)
+	{
+		session = &FT8.QSO_sessions[idx];
+		if (session->logged || session->log_pending)
+			return -1;
+		session->started_at = now;
+		session->ended_at = 0;
+		session->report_sent_snr = GCFT8_SNR_INVALID;
+		session->log_after_tx_73 = false;
+	}
+	else
+	{
+		idx = gcft8_qso_allocate_session(now);
+		if (idx < 0)
+			return -1;
+		session = &FT8.QSO_sessions[idx];
+		gcft8_qso_session_begin(session, candidate->view.from_call, now);
+	}
+
+	session->last_seen_at = now;
+	session->last_rx_snr = candidate->snr;
+	session->frequency_hz = candidate->frequency_hz;
+	gcft8_qso_update_locator(session, candidate->view.locator);
+	session->last_progress_at = now;
+
+	if ((session->last_tx_seq == 0) && (session->same_tx_repeat_count >= GCFT8_MAX_SAME_TX_REPEATS))
+	{
+		session->next_tx_seq = -1;
+		return -1;
+	}
+	session->next_tx_seq = 0;
+	session->log_after_tx_73 = false;
+	return idx;
+}
+
+static int gcft8_qso_tx_priority(const gcft8_qso_session_t* session)
+{
+	int score;
+
+	if ((session == NULL) || !session->in_use || (session->next_tx_seq < 0))
+		return -1000000;
+
+	score = session->next_tx_seq * 100;
+	if ((session->next_tx_seq == session->last_tx_seq) && (session->same_tx_repeat_count >= GCFT8_MAX_SAME_TX_REPEATS))
+		score -= 1000;
+	return score;
+}
+
+static int gcft8_qso_select_tx_session(void)
+{
+	int best_idx = -1;
+	int best_score = -1000000;
+
+	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	{
+		const gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
+		int score = gcft8_qso_tx_priority(session);
+
+		if (score <= -1000000)
+			continue;
+
+		if ((best_idx < 0) || (score > best_score) ||
+			((score == best_score) && (session->last_tx_at < FT8.QSO_sessions[best_idx].last_tx_at)) ||
+			((score == best_score) && (session->last_tx_at == FT8.QSO_sessions[best_idx].last_tx_at) && (session->last_progress_at < FT8.QSO_sessions[best_idx].last_progress_at)))
+		{
+			best_idx = idx;
+			best_score = score;
+		}
+	}
+
+	return best_idx;
+}
+
+static bool gcft8_qso_build_tx_message(const gcft8_qso_session_t* session, char* dst, size_t dst_size)
+{
+	int snr;
+	int written;
+
+	if ((session == NULL) || !session->in_use || (dst == NULL) || (dst_size == 0) || (session->callsign[0] == '\0'))
+		return false;
+
+	snr = session->last_rx_snr == GCFT8_SNR_INVALID ? 0 : session->last_rx_snr;
+	switch (session->next_tx_seq)
+	{
+	case 0:
+		written = snprintf(dst, dst_size, "%s %s %s", session->callsign, FT8.Local_CALLSIGN, FT8.Local_LOCATOR);
+		break;
+	case 1:
+		written = snprintf(dst, dst_size, "%s %s %+03d", session->callsign, FT8.Local_CALLSIGN, snr);
+		break;
+	case 2:
+		written = snprintf(dst, dst_size, "%s %s R%+03d", session->callsign, FT8.Local_CALLSIGN, snr);
+		break;
+	case 3:
+		written = snprintf(dst, dst_size, "%s %s RRR", session->callsign, FT8.Local_CALLSIGN);
+		break;
+	case 4:
+		written = snprintf(dst, dst_size, "%s %s 73", session->callsign, FT8.Local_CALLSIGN);
+		break;
+	default:
+		dst[0] = '\0';
+		return false;
+	}
+
+	if ((written < 0) || ((size_t)written >= dst_size))
+	{
+		dst[0] = '\0';
+		return false;
 	}
 
 	return true;
 }
 
-static int get_seq_qso_to_rep(const char * mess, bool * flaglog)
+static void gcft8_qso_mark_tx_sent(int session_idx, int sent_seq, bool tx_ok, time_t now)
 {
-	int rep = -1;
-	*flaglog=false;
+	gcft8_qso_session_t* session;
 
-	if (mess == NULL || mess[0] == '\0')
-		return -1;
-	
-	if (gcft8_is_signed_number_text(mess))
-	{
-		rep = 2;*flaglog=false;
-	}
-	
-	if ((mess[0] == 'R') && gcft8_is_signed_number_text(mess + 1))
-	{
-		rep = 3;*flaglog=false;
-	}
+	if (!tx_ok || (session_idx < 0) || (session_idx >= GCFT8_MAX_QSO_SESSIONS) || !FT8.QSO_sessions[session_idx].in_use)
+		return;
 
-	if (strcmp(mess, "RRR") == 0)
+	session = &FT8.QSO_sessions[session_idx];
+	session->last_tx_at = now;
+	if (sent_seq == session->last_tx_seq)
+		++session->same_tx_repeat_count;
+	else
 	{
-		rep = 4;*flaglog=false;
-	}
-	
-	if (strcmp(mess, "RR73") == 0)
-	{
-		rep = 4;*flaglog=true;
+		session->last_tx_seq = sent_seq;
+		session->same_tx_repeat_count = 1;
 	}
 
-	if (strcmp(mess, "73") == 0)
+	if ((sent_seq == 1) || (sent_seq == 2))
+		session->report_sent_snr = session->last_rx_snr;
+
+	if ((sent_seq == 4) && session->log_after_tx_73)
 	{
-		rep = -1;*flaglog=true;
+		session->ended_at = now;
+		if (!session->logged)
+			session->log_pending = true;
+		session->log_after_tx_73 = false;
 	}
-	
-	return rep;
-	
+
+	if (session->next_tx_seq == sent_seq)
+		session->next_tx_seq = -1;
+}
+
+static void gcft8_qso_prune_expired(time_t now)
+{
+	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	{
+		if (gcft8_qso_session_expired(&FT8.QSO_sessions[idx], now))
+			gcft8_qso_session_clear(&FT8.QSO_sessions[idx]);
+	}
 }
 
 static bool gcft8_append_text(char* dst, size_t dst_size, size_t* offset, const char* text)
@@ -2668,21 +3028,28 @@ static void gcft8_format_adif_datetime(time_t t, char date[9], char time_on[7])
 	strftime(time_on, 7, "%H%M%S", &tm);
 }
 
-static bool gcft8_build_adif_qso_record(char* dst, size_t dst_size, const char* callsign, const char* locator, int rst_sent, double rf_frequency_hz, time_t timestamp)
+static bool gcft8_build_adif_qso_record(char* dst, size_t dst_size, const char* callsign, const char* locator, int rst_sent, double rf_frequency_hz, time_t started_at, time_t ended_at)
 {
 	size_t offset = 0;
 	char qso_date[9];
 	char time_on[7];
+	char qso_date_off[9];
+	char time_off[7];
 	char freq_mhz[16];
-	char rst_sent_text[8];
+	char rst_sent_text[16];
 
 	if ((dst == NULL) || (dst_size == 0) || (callsign == NULL) || (callsign[0] == '\0'))
 		return false;
+	if (ended_at == 0)
+		ended_at = started_at;
 
 	dst[0] = '\0';
-	gcft8_format_adif_datetime(timestamp, qso_date, time_on);
+	gcft8_format_adif_datetime(started_at, qso_date, time_on);
+	gcft8_format_adif_datetime(ended_at, qso_date_off, time_off);
 	snprintf(freq_mhz, sizeof(freq_mhz), "%.6f", rf_frequency_hz / 1000000.0);
-	snprintf(rst_sent_text, sizeof(rst_sent_text), "%+03d", rst_sent);
+	rst_sent_text[0] = '\0';
+	if (rst_sent != GCFT8_SNR_INVALID)
+		snprintf(rst_sent_text, sizeof(rst_sent_text), "%+03d", rst_sent);
 
 	if (!gcft8_append_adif_field(dst, dst_size, &offset, "CALL", callsign))
 		return false;
@@ -2691,6 +3058,10 @@ static bool gcft8_build_adif_qso_record(char* dst, size_t dst_size, const char* 
 	if (!gcft8_append_adif_field(dst, dst_size, &offset, "QSO_DATE", qso_date))
 		return false;
 	if (!gcft8_append_adif_field(dst, dst_size, &offset, "TIME_ON", time_on))
+		return false;
+	if (!gcft8_append_adif_field(dst, dst_size, &offset, "QSO_DATE_OFF", qso_date_off))
+		return false;
+	if (!gcft8_append_adif_field(dst, dst_size, &offset, "TIME_OFF", time_off))
 		return false;
 	if (!gcft8_append_adif_field(dst, dst_size, &offset, "FREQ", freq_mhz))
 		return false;
@@ -2706,6 +3077,63 @@ static bool gcft8_build_adif_qso_record(char* dst, size_t dst_size, const char* 
 		return false;
 
 	return gcft8_append_text(dst, dst_size, &offset, "<EOR>\n");
+}
+
+static bool gcft8_build_adif_qso_record_from_session(const gcft8_qso_session_t* session, char* dst, size_t dst_size)
+{
+	if ((session == NULL) || !session->in_use || (session->callsign[0] == '\0'))
+		return false;
+
+	return gcft8_build_adif_qso_record(dst, dst_size, session->callsign, session->locator, session->report_sent_snr,
+		(double)FT8.Tranceiver_VFOA_Freq + (double)session->frequency_hz, session->started_at, session->ended_at);
+}
+
+static bool gcft8_qso_take_pending_log(gcft8_pending_log_t* pending_log)
+{
+	if (pending_log == NULL)
+		return false;
+
+	pending_log->adif_record[0] = '\0';
+	pending_log->callsign[0] = '\0';
+	pending_log->session_index = -1;
+
+	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	{
+		gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
+		if (!session->in_use || !session->log_pending || session->log_in_progress)
+			continue;
+
+		if (gcft8_build_adif_qso_record_from_session(session, pending_log->adif_record, sizeof(pending_log->adif_record)))
+		{
+			copy_text(pending_log->callsign, sizeof(pending_log->callsign), session->callsign);
+			pending_log->session_index = idx;
+			session->log_in_progress = true;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void gcft8_qso_finish_pending_log(const gcft8_pending_log_t* pending_log, bool success)
+{
+	gcft8_qso_session_t* session;
+
+	if ((pending_log == NULL) || (pending_log->session_index < 0) || (pending_log->session_index >= GCFT8_MAX_QSO_SESSIONS))
+		return;
+
+	pthread_mutex_lock(&FT8.TRX_status_lock);
+	session = &FT8.QSO_sessions[pending_log->session_index];
+	if (session->in_use && session->log_in_progress && (strcmp(session->callsign, pending_log->callsign) == 0))
+	{
+		if (success)
+		{
+			session->logged = true;
+			session->log_pending = false;
+		}
+		session->log_in_progress = false;
+	}
+	pthread_mutex_unlock(&FT8.TRX_status_lock);
 }
 
 static bool gcft8_write_adif_header(FILE* fptr)
@@ -2751,18 +3179,13 @@ static void gcft8_ensure_adif_log_file(void)
 	}
 }
 
-static void log_adif_qso(void)
+static bool log_adif_qso(const char* adif_record)
 {
-	char adif_record[sizeof(FT8.infos_to_log)];
 	FILE *fptr;
+	bool write_ok;
 
-	pthread_mutex_lock(&FT8.TRX_status_lock);
-	copy_text(adif_record, sizeof(adif_record), FT8.infos_to_log);
-	FT8.infos_to_log[0] = 0;
-	pthread_mutex_unlock(&FT8.TRX_status_lock);
-
-	if (adif_record[0] == '\0')
-		return;
+	if ((adif_record == NULL) || (adif_record[0] == '\0'))
+		return false;
 
 	gcft8_ensure_adif_log_file();
 	fptr = fopen(FT8.log_file_name,"ab");
@@ -2772,29 +3195,56 @@ static void log_adif_qso(void)
 		exit(1);
 	}
 
-	fprintf(fptr, "%s", adif_record);
-	fclose(fptr);
+	write_ok = fprintf(fptr, "%s", adif_record) >= 0;
+	if (fclose(fptr) != 0)
+		write_ok = false;
+	if (!write_ok)
+	{
+		fprintf(stderr, "Error writing ADIF log file %s\n", FT8.log_file_name);
+		return false;
+	}
+
 	clear_status_line();
 	printf("\033[1;32mLogged QSO to %s: %s\033[0m", FT8.log_file_name, adif_record);
 	if(FT8.beep_on_log){putchar('\07');putchar('\a');}
+	return true;
 }
 
 static void gcft8_uppercase_text(char* text);
 
-static void log_qso_to_filter_table(void)
+static void log_qso_to_filter_table(const char* callsign)
 {
-	char log_dist_CALLSIGN_for_filter[sizeof(FT8.log_dist_CALLSIGN_for_filter)];
+	char callsign_for_filter[20];
 
-	pthread_mutex_lock(&FT8.TRX_status_lock);
-	copy_text(log_dist_CALLSIGN_for_filter, sizeof(log_dist_CALLSIGN_for_filter), FT8.log_dist_CALLSIGN_for_filter);
-	FT8.log_dist_CALLSIGN_for_filter[0] = 0;
-	pthread_mutex_unlock(&FT8.TRX_status_lock);
-
-	if (log_dist_CALLSIGN_for_filter[0] == '\0')
+	if ((callsign == NULL) || (callsign[0] == '\0'))
 		return;
 
-	gcft8_uppercase_text(log_dist_CALLSIGN_for_filter);
-	ht_insert(ht_callsigntable_for_filter, log_dist_CALLSIGN_for_filter);
+	copy_text(callsign_for_filter, sizeof(callsign_for_filter), callsign);
+	gcft8_uppercase_text(callsign_for_filter);
+	ht_insert(ht_callsigntable_for_filter, callsign_for_filter);
+}
+
+static void gcft8_flush_pending_logs(void)
+{
+	for (;;)
+	{
+		gcft8_pending_log_t pending_log;
+		bool has_log;
+
+		pthread_mutex_lock(&FT8.TRX_status_lock);
+		has_log = gcft8_qso_take_pending_log(&pending_log);
+		pthread_mutex_unlock(&FT8.TRX_status_lock);
+
+		if (!has_log)
+			break;
+
+		bool logged = log_adif_qso(pending_log.adif_record);
+		if (logged)
+			log_qso_to_filter_table(pending_log.callsign);
+		gcft8_qso_finish_pending_log(&pending_log, logged);
+		if (!logged)
+			break;
+	}
 }
 
 typedef struct
@@ -3018,21 +3468,31 @@ static void TX_FT8()
 		pthread_mutex_unlock(&FT8.TRX_status_lock);
 		if((stat == GCFT8_TRX_TX) && !gcft8_shutdown_requested()){
 			
-			bool flaglog = 0;
-			char tx_message[sizeof(FT8.QSO_RESPONSES[0])];
-			char tx_callsign[sizeof(FT8.QSO_dist_CALLSIGN)];
+			bool tx_completed = false;
+			char tx_message[GCFT8_TX_MESSAGE_TEXT_SIZE];
+			char tx_callsign[sizeof(FT8.QSO_sessions[0].callsign)];
 			float tx_frequency = 0.0f;
 			int tx_index = -1;
+			int tx_session_index = -1;
 			
+			tx_message[0] = '\0';
+			tx_callsign[0] = '\0';
+
 			pthread_mutex_lock(&FT8.TRX_status_lock);
-			gen_FT8_responses();
-			
-			if(FT8.QSO_Index_to_rep == -1){FT8.QSO_Index_to_rep=get_seq_qso_to_rep(FT8.QSO_dist_MESSAGE,&flaglog);}
-			tx_index = FT8.QSO_Index_to_rep;
-			if((tx_index>-1) && !gcft8_shutdown_requested()){
-				copy_text(tx_message, sizeof(tx_message), FT8.QSO_RESPONSES[tx_index]);
-				copy_text(tx_callsign, sizeof(tx_callsign), FT8.QSO_dist_CALLSIGN);
-				tx_frequency = FT8.QSO_dist_FREQUENCY;
+			tx_session_index = gcft8_qso_select_tx_session();
+			if (tx_session_index >= 0)
+			{
+				gcft8_qso_session_t* session = &FT8.QSO_sessions[tx_session_index];
+				tx_index = session->next_tx_seq;
+				if ((tx_index > -1) && gcft8_qso_build_tx_message(session, tx_message, sizeof(tx_message)) && !gcft8_shutdown_requested())
+				{
+					copy_text(tx_callsign, sizeof(tx_callsign), session->callsign);
+					tx_frequency = session->frequency_hz;
+				}
+				else
+				{
+					tx_index = -1;
+				}
 			}
 			pthread_mutex_unlock(&FT8.TRX_status_lock);
 	
@@ -3184,25 +3644,19 @@ static void TX_FT8()
 				{
 					snd_pcm_drop(sound.playback_handle);
 				}
+				tx_completed = (count == num_total_samples) && !gcft8_shutdown_requested();
 				
 				tranceiver_rtx(GCFT8_TRX_RX);
 
 				printDateTime_ms();printf(" stop send message\n");
 
 			}
-			
-			if(flaglog)
-			{
-				pthread_mutex_lock(&FT8.TRX_status_lock);
-				if(FT8.QSO_dist_CALLSIGN[0]!=0 && FT8.QSO_dist_LOCATOR[0]!=0 && FT8.QSO_dist_MESSAGE[0]!=0){
-					if (!gcft8_build_adif_qso_record(FT8.infos_to_log, sizeof(FT8.infos_to_log), FT8.QSO_dist_CALLSIGN, FT8.QSO_dist_LOCATOR, FT8.QSO_dist_SNR, (double)FT8.Tranceiver_VFOA_Freq + (double)FT8.QSO_dist_FREQUENCY, time(NULL)))
-						FT8.infos_to_log[0] = '\0';
-					snprintf(FT8.log_dist_CALLSIGN_for_filter, sizeof(FT8.log_dist_CALLSIGN_for_filter), "%s",FT8.QSO_dist_CALLSIGN);
-					//Empty QSO variable
-					Reinit_FT8_QSO();
-				}
-				pthread_mutex_unlock(&FT8.TRX_status_lock);
-			}
+
+			pthread_mutex_lock(&FT8.TRX_status_lock);
+			gcft8_qso_mark_tx_sent(tx_session_index, tx_index, tx_completed, time(NULL));
+			pthread_mutex_unlock(&FT8.TRX_status_lock);
+
+			gcft8_flush_pending_logs();
 
 			unlock_RX_thread();
 			
@@ -3593,9 +4047,9 @@ int main (int argc, char *argv[])
 	install_signal_handlers();
 	gcft8_tx_context_init(&gcft8_tx_context);
 	gcft8_rx_context_init(&gcft8_rx_context);
+	gcft8_qso_sessions_init();
 	
 	latLonForGrid(FT8.Local_LOCATOR,FT8.Local_latlon);
-	snprintf(FT8.QSO_RESPONSES[5], sizeof(FT8.QSO_RESPONSES[5]), "CQ %s %s", FT8.Local_CALLSIGN, FT8.Local_LOCATOR);
 	callsign_hash_cache_init();
 	gcft8_update_adif_log_filename(FT8.Local_CALLSIGN, FT8.log_file_name, sizeof(FT8.log_file_name));
 	load_qso_filter_from_adif();
@@ -3623,7 +4077,7 @@ int main (int argc, char *argv[])
 		"-TRX serial port is %s\n"
 		"-Sound device is %s\n"
 		"-ADIF log file is %s\n"
-		"-CQ filter method is %d\n"
+		"-CQ filter method is %d (%s)\n"
 		"-SNR minimum filter is %s\n"
 		"-Prefix filter is %s\n"
 		"-Special CQ tag filter is %s\n"
@@ -3637,6 +4091,7 @@ int main (int argc, char *argv[])
 		sound.capture_sound_device,
 		FT8.log_file_name,
 		FT8.filter_on_cq,
+		ft8_filter_mode_name(FT8.filter_on_cq),
 		startup_snr_min_text,
 		startup_prefix_filter,
 		startup_sp_tag_filter,
@@ -3659,10 +4114,6 @@ int main (int argc, char *argv[])
 	{
 		usleep(500000);
 		advance_cursor(startup_mode_cfg->slot_time);
-		pthread_mutex_lock(&FT8.TRX_status_lock);
-		bool log_pending = FT8.infos_to_log[0] != 0;
-		pthread_mutex_unlock(&FT8.TRX_status_lock);
-		if(log_pending){log_adif_qso();log_qso_to_filter_table();}
 		#if DEBUG
 		printf("wait\n");
 		#endif

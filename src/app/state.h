@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <pthread.h>
+#include <time.h>
 #include <alsa/asoundlib.h>
 
 #include "vendor/cssl/cssl.h"
@@ -20,22 +21,46 @@ typedef enum
     GCFT8_TRX_TX = 1
 } gcft8_trx_state_t;
 
+#define GCFT8_MAX_QSO_SESSIONS 128
+#define GCFT8_QSO_SESSION_TTL_SEC 900
+#define GCFT8_MAX_SAME_TX_REPEATS 2
+#define GCFT8_SNR_INVALID (-2147483647 - 1)
+
+typedef struct
+{
+	bool in_use;
+	bool logged;
+	bool log_after_tx_73;
+	bool log_pending;
+	bool log_in_progress;
+
+	char callsign[20];
+	char locator[10];
+
+	float frequency_hz;
+
+	int last_rx_snr;
+	int report_sent_snr;
+
+	int next_tx_seq;
+	int last_tx_seq;
+	int same_tx_repeat_count;
+
+	time_t started_at;
+	time_t ended_at;
+	time_t last_seen_at;
+	time_t last_progress_at;
+	time_t last_tx_at;
+} gcft8_qso_session_t;
+
 //gcFT8
 typedef struct
 {
 	char Local_CALLSIGN[20];
 	char Local_LOCATOR[10];
 	float Local_latlon[2];
-	bool TX_enable;
-	
-	char QSO_dist_CALLSIGN[20];
-	char QSO_dist_LOCATOR[10];
-	char QSO_dist_MESSAGE[10];
-	int  QSO_dist_SNR;
-	float  QSO_dist_FREQUENCY;
-	
-	char QSO_RESPONSES[6][50];
-	int QSO_Index_to_rep;
+
+	gcft8_qso_session_t QSO_sessions[GCFT8_MAX_QSO_SESSIONS];
 	
 	gcft8_trx_state_t TRX_status;
 	pthread_mutex_t TRX_status_lock;
@@ -45,8 +70,6 @@ typedef struct
 	int Tranceiver_VFOA_Freq;
 	
 	char log_file_name[128];
-	char infos_to_log [512];
-	char log_dist_CALLSIGN_for_filter[20];
 	bool beep_on_log;
 	
 	int filter_on_cq;
