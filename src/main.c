@@ -43,7 +43,7 @@
 #define GCFT8_MAX_LOCATOR_ZONES 64
 #define GCFT8_TX_MESSAGE_TEXT_SIZE 50
 #define GCFT8_ADIF_RECORD_TEXT_SIZE 512
-#define GCFT8_CONFIG_FILE "gcFT8.conf"
+#define GCFT8_DEFAULT_CONFIG_FILE "gcFT8.conf"
 #define GCFT8_CONFIG_MAX_LINE 1024
 #define GCFT8_SOUND_DEVICE_TEXT_SIZE 256
 
@@ -3978,10 +3978,12 @@ static void print_usage(const char* program_name, FILE* stream)
 		"\n"
 		"Configuration file:\n"
 		"  If gcFT8.conf exists in the current directory, options are loaded from it before command-line options.\n"
+		"  Use --conf-file <path> to load another configuration file instead.\n"
 		"  Use one option per line: mode=ft8, sound-device=plughw:CARD=PCH,DEV=0, or --band 20.\n"
 		"\n"
 		"Options:\n"
 		"  --help                     Show this help and exit\n"
+		"  --conf-file <path>         Load this configuration file instead of gcFT8.conf\n"
 		"  --mode <ft8|ft4|ft2>       Digital mode (default: ft8)\n"
 		"  --sound-device <device>    Required ALSA capture and playback device, prefer plughw\n"
 		"  --callsign <callsign>      Required local callsign\n"
@@ -4058,7 +4060,8 @@ enum
 	CLI_OPTION_ONLY_SP_TAG,
 	CLI_OPTION_ONLY_LOCATOR_ZONE,
 	CLI_OPTION_SERIAL_DEVICE,
-	CLI_OPTION_MAX_SAME_TX_REPEATS
+	CLI_OPTION_MAX_SAME_TX_REPEATS,
+	CLI_OPTION_CONF_FILE
 };
 
 typedef enum
@@ -4152,6 +4155,9 @@ static void gcft8_apply_option(int option_id, const char* value, gcft8_option_st
 	case CLI_OPTION_HELP:
 		print_usage(program_name, stdout);
 		exit(0);
+	case CLI_OPTION_CONF_FILE:
+		GCFT8_REQUIRE_VALUE("--conf-file");
+		break;
 	case CLI_OPTION_BEEP:
 		if ((value != NULL) && (value[0] != '\0'))
 		{
@@ -4381,7 +4387,7 @@ static bool gcft8_config_option_id_from_name(const char* name, int* option_id, b
 	return false;
 }
 
-static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state, const char* program_name)
+static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state, const char* program_name, bool required)
 {
 	FILE* file;
 	char line[GCFT8_CONFIG_MAX_LINE];
@@ -4393,7 +4399,7 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 	file = fopen(path, "r");
 	if (file == NULL)
 	{
-		if (errno == ENOENT)
+		if ((errno == ENOENT) && !required)
 			return;
 		fprintf(stderr, "Could not open %s: %s\n", path, strerror(errno));
 		exit(1);
@@ -4488,9 +4494,12 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 int main (int argc, char *argv[])
 {
 	int c;
+	const char* config_file = GCFT8_DEFAULT_CONFIG_FILE;
+	bool config_file_required = false;
 	gcft8_option_state_t option_state;
 	static const struct option long_options[] = {
 		{ "help", no_argument, NULL, CLI_OPTION_HELP },
+		{ "conf-file", required_argument, NULL, CLI_OPTION_CONF_FILE },
 		{ "beep", no_argument, NULL, CLI_OPTION_BEEP },
 		{ "sound-device", required_argument, NULL, CLI_OPTION_SOUND_DEVICE },
 		{ "callsign", required_argument, NULL, CLI_OPTION_CALLSIGN },
@@ -4517,9 +4526,33 @@ int main (int argc, char *argv[])
 			print_usage(argv[0], stdout);
 			exit(0);
 		}
+		if (strcmp(argv[arg_idx], "--conf-file") == 0)
+		{
+			if ((arg_idx + 1) >= argc)
+			{
+				fprintf(stderr, "Missing value for --conf-file.\n");
+				print_usage(argv[0], stderr);
+				exit(1);
+			}
+			config_file = argv[arg_idx + 1];
+			config_file_required = true;
+			++arg_idx;
+			continue;
+		}
+		if (strncmp(argv[arg_idx], "--conf-file=", 12) == 0)
+		{
+			config_file = argv[arg_idx] + 12;
+			if (config_file[0] == '\0')
+			{
+				fprintf(stderr, "Missing value for --conf-file.\n");
+				print_usage(argv[0], stderr);
+				exit(1);
+			}
+			config_file_required = true;
+		}
 	}
 
-	gcft8_load_config_file(GCFT8_CONFIG_FILE, &option_state, argv[0]);
+	gcft8_load_config_file(config_file, &option_state, argv[0], config_file_required);
 
 	optind = 1;
 	while ((c = getopt_long(argc, argv, "", long_options, NULL)) != -1)

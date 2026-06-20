@@ -39,7 +39,7 @@ make
 
 ## Configuration File
 
-If `gcFT8.conf` exists in the project root/current directory, `gcFT8` loads options from it before parsing command-line options. Command-line options override values from the file.
+If `gcFT8.conf` exists in the current directory, `gcFT8` loads options from it before parsing command-line options. Use `--conf-file <path>` to load another configuration file instead. Command-line options override values from the loaded file.
 
 Format: one option per line, with optional `#` comments. Option names are the same as the long command-line options, with or without `--`.
 
@@ -95,6 +95,7 @@ Combine filters before the final automatic CQ choice:
 
 ```text
 --help
+--conf-file <path>
 --mode <ft8|ft4|ft2>
 --sound-device <device>
 --callsign <callsign>
