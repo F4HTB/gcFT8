@@ -5,8 +5,8 @@ LDFLAGS ?=
 DEBUG_LDFLAGS ?= -fsanitize=address
 LDLIBS += -lm -lasound -pthread
 
-TARGET = gcFT8
-DEBUG_TARGET = gcFT8-debug
+TARGET = gcFTx
+DEBUG_TARGET = gcFTx-debug
 RELEASE_OBJDIR = build/release
 DEBUG_OBJDIR = build/debug
 

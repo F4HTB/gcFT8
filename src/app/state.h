@@ -1,5 +1,5 @@
-#ifndef GCFT8_APP_STATE_H
-#define GCFT8_APP_STATE_H
+#ifndef GCFTX_APP_STATE_H
+#define GCFTX_APP_STATE_H
 
 #include <stdbool.h>
 #include <pthread.h>
@@ -17,14 +17,14 @@
 
 typedef enum
 {
-    GCFT8_TRX_RX = 0,
-    GCFT8_TRX_TX = 1
-} gcft8_trx_state_t;
+    GCFTX_TRX_RX = 0,
+    GCFTX_TRX_TX = 1
+} gcftx_trx_state_t;
 
-#define GCFT8_MAX_QSO_SESSIONS 128
-#define GCFT8_QSO_SESSION_TTL_SEC 900
-#define GCFT8_MAX_SAME_TX_REPEATS 6
-#define GCFT8_SNR_INVALID (-2147483647 - 1)
+#define GCFTX_MAX_QSO_SESSIONS 128
+#define GCFTX_QSO_SESSION_TTL_SEC 900
+#define GCFTX_MAX_SAME_TX_REPEATS 6
+#define GCFTX_SNR_INVALID (-2147483647 - 1)
 
 typedef struct
 {
@@ -51,18 +51,18 @@ typedef struct
 	time_t last_seen_at;
 	time_t last_progress_at;
 	time_t last_tx_at;
-} gcft8_qso_session_t;
+} gcftx_qso_session_t;
 
-//gcFT8
+//gcFTx
 typedef struct
 {
 	char Local_CALLSIGN[20];
 	char Local_LOCATOR[10];
 	float Local_latlon[2];
 
-	gcft8_qso_session_t QSO_sessions[GCFT8_MAX_QSO_SESSIONS];
+	gcftx_qso_session_t QSO_sessions[GCFTX_MAX_QSO_SESSIONS];
 	
-	gcft8_trx_state_t TRX_status;
+	gcftx_trx_state_t TRX_status;
 	pthread_mutex_t TRX_status_lock;
 	pthread_cond_t RX_status_cond;
 	pthread_cond_t TX_status_cond;
@@ -75,7 +75,7 @@ typedef struct
 	int filter_on_cq;
 	
 	
-} FT8info;
+} FTXinfo;
 
 typedef struct
 {

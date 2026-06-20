@@ -1,5 +1,5 @@
-#ifndef GCFT8_DSP_GFSK_H
-#define GCFT8_DSP_GFSK_H
+#ifndef GCFTX_DSP_GFSK_H
+#define GCFTX_DSP_GFSK_H
 
 #include <stdbool.h>
 #include <stddef.h>

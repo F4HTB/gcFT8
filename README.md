@@ -1,10 +1,12 @@
-# gcFT8
+# gcFTx
 
 Automatic FT8/FT4/FT2 command-line QSO tool for ham radio use.
 
+Repository: https://github.com/F4HTB/gcFTx
+
 ## Logs
 
-`gcFT8` writes QSOs in ADIF format to one file per local callsign:
+`gcFTx` writes QSOs in ADIF format to one file per local callsign:
 
 ```text
 QSO_<CALLSIGN>.adif
@@ -29,17 +31,17 @@ make clean
 make
 ```
 
-`make` builds the release binary by default. Use `make debug` for an AddressSanitizer debug binary named `gcFT8-debug`.
+`make` builds the release binary by default. Use `make debug` for an AddressSanitizer debug binary named `gcFTx-debug`.
 
 ## Example
 
 ```bash
-./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --max-same-tx-repeats 6 --beep
+./gcFTx --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --max-same-tx-repeats 6 --beep
 ```
 
 ## Configuration File
 
-If `gcFT8.conf` exists in the current directory, `gcFT8` loads options from it before parsing command-line options. Use `--conf-file <path>` to load another configuration file instead. Command-line options override values from the loaded file.
+If `gcFTx.conf` exists in the current directory, `gcFTx` loads options from it before parsing command-line options. Use `--conf-file <path>` to load another configuration file instead. Command-line options override values from the loaded file.
 
 Format: one option per line, with optional `#` comments. Option names are the same as the long command-line options, with or without `--`.
 
@@ -64,31 +66,31 @@ beep=true
 Randomly select CQ calls at or above -18 dB:
 
 ```bash
-./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --snr-min -18
+./gcFTx --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --snr-min -18
 ```
 
 Select only CQ callsigns starting with `JA`, `VK`, or `ZL`:
 
 ```bash
-./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --only-prefix JA,VK,ZL
+./gcFTx --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --only-prefix JA,VK,ZL
 ```
 
 Select CQ calls in two-letter Maidenhead locator zones. `BP:CO` accepts `BO`, `BP`, `CO`, and `CP`:
 
 ```bash
-./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --only-locator-zone BP:CO
+./gcFTx --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --only-locator-zone BP:CO
 ```
 
 Select only special-purpose CQ tags such as `CQ POTA ...`, `CQ SOTA ...`, or `CQ DX ...`:
 
 ```bash
-./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --only-sp-tag POTA,SOTA,DX
+./gcFTx --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --only-sp-tag POTA,SOTA,DX
 ```
 
 Combine filters before the final automatic CQ choice:
 
 ```bash
-./gcFT8 --mode ft2 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 5 --snr-min -16 --only-prefix JA,VK,ZL --only-sp-tag POTA,SOTA --only-locator-zone BP:FL,IO:KM,ON:PL
+./gcFTx --mode ft2 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 5 --snr-min -16 --only-prefix JA,VK,ZL --only-sp-tag POTA,SOTA --only-locator-zone BP:FL,IO:KM,ON:PL
 ```
 
 ## Options
@@ -128,7 +130,7 @@ The following options are required: `--sound-device`, `--callsign`, `--locator`,
 
 These optional filters only affect automatic CQ candidate selection. Decoded messages are still displayed, direct messages to your station are not blocked, and the ADIF already-worked filter still applies.
 
-At startup, `gcFT8` prints a summary of the active mode, frequency, log file, filter mode, `--max-same-tx-repeats`, `--snr-min`, `--only-prefix`, `--only-sp-tag`, and `--only-locator-zone` settings.
+At startup, `gcFTx` prints a summary of the active mode, frequency, log file, filter mode, `--max-same-tx-repeats`, `--snr-min`, `--only-prefix`, `--only-sp-tag`, and `--only-locator-zone` settings.
 
 ## Filters
 

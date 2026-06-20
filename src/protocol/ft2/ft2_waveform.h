@@ -1,5 +1,5 @@
-#ifndef GCFT8_PROTOCOL_FT2_WAVEFORM_H
-#define GCFT8_PROTOCOL_FT2_WAVEFORM_H
+#ifndef GCFTX_PROTOCOL_FT2_WAVEFORM_H
+#define GCFTX_PROTOCOL_FT2_WAVEFORM_H
 
 #include <stdbool.h>
 #include <stdint.h>

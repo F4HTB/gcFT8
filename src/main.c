@@ -36,24 +36,24 @@
 
 #define FT8_TOKEN_TEXT_SIZE 25
 #define CALLSIGN_HASH_CACHE_SIZE 256
-#define GCFT8_MAX_ONLY_PREFIXES 64
-#define GCFT8_PREFIX_TEXT_SIZE 16
-#define GCFT8_MAX_SP_TAGS 64
-#define GCFT8_SP_TAG_TEXT_SIZE 8
-#define GCFT8_MAX_LOCATOR_ZONES 64
-#define GCFT8_TX_MESSAGE_TEXT_SIZE 50
-#define GCFT8_ADIF_RECORD_TEXT_SIZE 512
-#define GCFT8_DEFAULT_CONFIG_FILE "gcFT8.conf"
-#define GCFT8_CONFIG_MAX_LINE 1024
-#define GCFT8_SOUND_DEVICE_TEXT_SIZE 256
+#define GCFTX_MAX_ONLY_PREFIXES 64
+#define GCFTX_PREFIX_TEXT_SIZE 16
+#define GCFTX_MAX_SP_TAGS 64
+#define GCFTX_SP_TAG_TEXT_SIZE 8
+#define GCFTX_MAX_LOCATOR_ZONES 64
+#define GCFTX_TX_MESSAGE_TEXT_SIZE 50
+#define GCFTX_ADIF_RECORD_TEXT_SIZE 512
+#define GCFTX_DEFAULT_CONFIG_FILE "gcFTx.conf"
+#define GCFTX_CONFIG_MAX_LINE 1024
+#define GCFTX_SOUND_DEVICE_TEXT_SIZE 256
 
-#define FT8_FILTER_LISTEN_ONLY 0
-#define FT8_FILTER_RANDOM_CQ 1
-#define FT8_FILTER_BEST_DECODE_SCORE 2
-#define FT8_FILTER_MAX_DISTANCE 3
-#define FT8_FILTER_MIN_DISTANCE 4
-#define FT8_FILTER_MAX_SNR 5
-#define FT8_FILTER_MIN_SNR 6
+#define FTX_FILTER_LISTEN_ONLY 0
+#define FTX_FILTER_RANDOM_CQ 1
+#define FTX_FILTER_BEST_DECODE_SCORE 2
+#define FTX_FILTER_MAX_DISTANCE 3
+#define FTX_FILTER_MIN_DISTANCE 4
+#define FTX_FILTER_MAX_SNR 5
+#define FTX_FILTER_MIN_SNR 6
 
 #define FT8_SYMBOL_BT 2.0f ///< symbol smoothing filter bandwidth factor (BT)
 #define FT4_SYMBOL_BT 1.0f ///< symbol smoothing filter bandwidth factor (BT)
@@ -73,10 +73,10 @@
 
 typedef enum
 {
-	GCFT8_MODE_FT8,
-	GCFT8_MODE_FT4,
-	GCFT8_MODE_FT2
-} gcft8_mode_t;
+	GCFTX_MODE_FT8,
+	GCFTX_MODE_FT4,
+	GCFTX_MODE_FT2
+} gcftx_mode_t;
 
 typedef struct
 {
@@ -84,11 +84,11 @@ typedef struct
 	int ft8_frequency_hz;
 	int ft4_frequency_hz;
 	int ft2_frequency_hz;
-} gcft8_band_frequency_t;
+} gcftx_band_frequency_t;
 
 typedef struct
 {
-	gcft8_mode_t mode;
+	gcftx_mode_t mode;
 	const char* name;
 	ftx_protocol_t protocol;
 	int num_tones;
@@ -100,7 +100,7 @@ typedef struct
 	float rx_capture_time;
 	float rx_dt_offset;
 	float tx_late_grace;
-} gcft8_mode_config_t;
+} gcftx_mode_config_t;
 
 typedef struct
 {
@@ -108,7 +108,7 @@ typedef struct
 	int lon_max;
 	int lat_min;
 	int lat_max;
-} gcft8_locator_zone_t;
+} gcftx_locator_zone_t;
 
 typedef struct
 {
@@ -120,63 +120,63 @@ typedef struct
 	char from_call[FT8_TOKEN_TEXT_SIZE];
 	char locator[FT8_TOKEN_TEXT_SIZE];
 	char message[FT8_TOKEN_TEXT_SIZE];
-} gcft8_decoded_message_view_t;
+} gcftx_decoded_message_view_t;
 
 typedef enum
 {
-	GCFT8_REJECT_NONE,
-	GCFT8_REJECT_MISSING_CALLSIGN,
-	GCFT8_REJECT_MISSING_LOCATOR,
-	GCFT8_REJECT_ALREADY_WORKED,
-	GCFT8_REJECT_SNR,
-	GCFT8_REJECT_PREFIX,
-	GCFT8_REJECT_LOCATOR_ZONE,
-	GCFT8_REJECT_SP_TAG,
-	GCFT8_REJECT_MAX_REPEATS
-} gcft8_reject_reason_t;
+	GCFTX_REJECT_NONE,
+	GCFTX_REJECT_MISSING_CALLSIGN,
+	GCFTX_REJECT_MISSING_LOCATOR,
+	GCFTX_REJECT_ALREADY_WORKED,
+	GCFTX_REJECT_SNR,
+	GCFTX_REJECT_PREFIX,
+	GCFTX_REJECT_LOCATOR_ZONE,
+	GCFTX_REJECT_SP_TAG,
+	GCFTX_REJECT_MAX_REPEATS
+} gcftx_reject_reason_t;
 
 typedef enum
 {
-	GCFT8_DISPLAY_NORMAL,
-	GCFT8_DISPLAY_FOR_LOCAL,
-	GCFT8_DISPLAY_CQ_CANDIDATE,
-	GCFT8_DISPLAY_ALREADY_WORKED,
-	GCFT8_DISPLAY_FILTERED,
-	GCFT8_DISPLAY_MAX_REPEATS
-} gcft8_display_class_t;
+	GCFTX_DISPLAY_NORMAL,
+	GCFTX_DISPLAY_FOR_LOCAL,
+	GCFTX_DISPLAY_CQ_CANDIDATE,
+	GCFTX_DISPLAY_ALREADY_WORKED,
+	GCFTX_DISPLAY_FILTERED,
+	GCFTX_DISPLAY_MAX_REPEATS
+} gcftx_display_class_t;
 
 typedef struct
 {
 	ftx_decoded_message_t decoded;
-	gcft8_decoded_message_view_t view;
+	gcftx_decoded_message_view_t view;
 	float frequency_hz;
 	float time_sec;
 	int snr;
 	int score;
-	gcft8_reject_reason_t reject_reason;
-	gcft8_display_class_t display_class;
-} gcft8_rx_candidate_t;
+	gcftx_reject_reason_t reject_reason;
+	gcftx_display_class_t display_class;
+} gcftx_rx_candidate_t;
 
 typedef enum
 {
-	GCFT8_QSO_ACTION_NONE,
-	GCFT8_QSO_ACTION_TX,
-	GCFT8_QSO_ACTION_LOG_NOW,
-	GCFT8_QSO_ACTION_TX_AND_LOG_AFTER
-} gcft8_qso_action_type_t;
+	GCFTX_QSO_ACTION_NONE,
+	GCFTX_QSO_ACTION_TX,
+	GCFTX_QSO_ACTION_LOG_NOW,
+	GCFTX_QSO_ACTION_TX_AND_LOG_AFTER
+} gcftx_qso_action_type_t;
 
 typedef struct
 {
-	gcft8_qso_action_type_t type;
+	gcftx_qso_action_type_t type;
 	int tx_seq;
-} gcft8_qso_action_t;
+} gcftx_qso_action_t;
 
 typedef struct
 {
-	char adif_record[GCFT8_ADIF_RECORD_TEXT_SIZE];
+	char adif_record[GCFTX_ADIF_RECORD_TEXT_SIZE];
 	char callsign[20];
 	int session_index;
-} gcft8_pending_log_t;
+} gcftx_pending_log_t;
 
 typedef struct
 {
@@ -188,7 +188,7 @@ typedef struct
 	int num_total_samples;
 	size_t gfsk_dphi_capacity;
 	size_t gfsk_pulse_capacity;
-} gcft8_tx_audio_layout_t;
+} gcftx_tx_audio_layout_t;
 
 typedef struct
 {
@@ -197,7 +197,7 @@ typedef struct
 	int16_t* pcm;
 	size_t pcm_capacity;
 	gfsk_scratch_t gfsk_scratch;
-} gcft8_tx_context_t;
+} gcftx_tx_context_t;
 
 typedef struct
 {
@@ -210,15 +210,15 @@ typedef struct
 	size_t raw_data_capacity;
 	ftx_candidate_t* candidate_list;
 	size_t candidate_capacity;
-	gcft8_rx_candidate_t* cq_candidates;
+	gcftx_rx_candidate_t* cq_candidates;
 	size_t cq_candidate_capacity;
 	ftx_message_t* decoded;
 	size_t decoded_capacity;
 	ftx_message_t** decoded_hashtable;
 	size_t decoded_hashtable_capacity;
-} gcft8_rx_context_t;
+} gcftx_rx_context_t;
 
-static const gcft8_band_frequency_t gcft8_band_frequencies[] = {
+static const gcftx_band_frequency_t gcftx_band_frequencies[] = {
 	{ "80",  3573000,  3575000,  3578000 },
 	{ "60",  5357000,  5357000,  5360000 },
 	{ "40",  7074000,  7047500,  7062000 },
@@ -231,9 +231,9 @@ static const gcft8_band_frequency_t gcft8_band_frequencies[] = {
 	{ "10", 28074000, 28180000, 28184000 }
 };
 
-static const gcft8_mode_config_t gcft8_mode_configs[] = {
+static const gcftx_mode_config_t gcftx_mode_configs[] = {
 	{
-		.mode = GCFT8_MODE_FT8,
+		.mode = GCFTX_MODE_FT8,
 		.name = "ft8",
 		.protocol = FTX_PROTOCOL_FT8,
 		.num_tones = FT8_NN,
@@ -247,7 +247,7 @@ static const gcft8_mode_config_t gcft8_mode_configs[] = {
 		.tx_late_grace = 0.0f
 	},
 	{
-		.mode = GCFT8_MODE_FT4,
+		.mode = GCFTX_MODE_FT4,
 		.name = "ft4",
 		.protocol = FTX_PROTOCOL_FT4,
 		.num_tones = FT4_NN,
@@ -261,7 +261,7 @@ static const gcft8_mode_config_t gcft8_mode_configs[] = {
 		.tx_late_grace = 0.0f
 	},
 	{
-		.mode = GCFT8_MODE_FT2,
+		.mode = GCFTX_MODE_FT2,
 		.name = "ft2",
 		.protocol = FTX_PROTOCOL_FT2,
 		.num_tones = FT2_NN,
@@ -286,48 +286,48 @@ static callsign_hash_entry_t callsign_hash_cache[CALLSIGN_HASH_CACHE_SIZE];
 static int callsign_hash_cache_size;
 static pthread_mutex_t callsign_hash_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static volatile sig_atomic_t shutdown_requested;
-static gcft8_mode_t gcft8_mode = GCFT8_MODE_FT8;
-static bool gcft8_filter_has_band;
-static char gcft8_filter_band[8];
-static int gcft8_filter_frequency_mhz;
-static bool gcft8_snr_min_enabled;
-static int gcft8_snr_min;
-static char gcft8_only_prefixes[GCFT8_MAX_ONLY_PREFIXES][GCFT8_PREFIX_TEXT_SIZE];
-static size_t gcft8_only_prefix_count;
-static char gcft8_only_sp_tags[GCFT8_MAX_SP_TAGS][GCFT8_SP_TAG_TEXT_SIZE];
-static size_t gcft8_only_sp_tag_count;
-static gcft8_locator_zone_t gcft8_locator_zones[GCFT8_MAX_LOCATOR_ZONES];
-static size_t gcft8_locator_zone_count;
-static int gcft8_max_same_tx_repeats = GCFT8_MAX_SAME_TX_REPEATS;
+static gcftx_mode_t gcftx_mode = GCFTX_MODE_FT8;
+static bool gcftx_filter_has_band;
+static char gcftx_filter_band[8];
+static int gcftx_filter_frequency_mhz;
+static bool gcftx_snr_min_enabled;
+static int gcftx_snr_min;
+static char gcftx_only_prefixes[GCFTX_MAX_ONLY_PREFIXES][GCFTX_PREFIX_TEXT_SIZE];
+static size_t gcftx_only_prefix_count;
+static char gcftx_only_sp_tags[GCFTX_MAX_SP_TAGS][GCFTX_SP_TAG_TEXT_SIZE];
+static size_t gcftx_only_sp_tag_count;
+static gcftx_locator_zone_t gcftx_locator_zones[GCFTX_MAX_LOCATOR_ZONES];
+static size_t gcftx_locator_zone_count;
+static int gcftx_max_same_tx_repeats = GCFTX_MAX_SAME_TX_REPEATS;
 static HashTable* ht_callsigntable_for_filter;
-static gcft8_tx_context_t gcft8_tx_context;
-static gcft8_rx_context_t gcft8_rx_context;
+static gcftx_tx_context_t gcftx_tx_context;
+static gcftx_rx_context_t gcftx_rx_context;
 
-static bool gcft8_snr_filter_rejects(int snr);
-static bool gcft8_prefix_filter_rejects(const char* callsign);
-static bool gcft8_locator_zone_filter_rejects(const char* locator);
-static bool gcft8_cq_repeat_guard_rejects(const char* callsign);
+static bool gcftx_snr_filter_rejects(int snr);
+static bool gcftx_prefix_filter_rejects(const char* callsign);
+static bool gcftx_locator_zone_filter_rejects(const char* locator);
+static bool gcftx_cq_repeat_guard_rejects(const char* callsign);
 static void printDateTime_log(void);
-static void tranceiver_rtx(gcft8_trx_state_t ptt);
-static void gcft8_qso_sessions_init(void);
-static void gcft8_qso_prune_expired(time_t now);
-static bool gcft8_qso_update_from_direct_candidate(const gcft8_rx_candidate_t* candidate, time_t now, bool* tx_needed);
-static int gcft8_qso_update_from_cq_candidate(const gcft8_rx_candidate_t* candidate, time_t now);
-static int gcft8_qso_select_tx_session(void);
-static bool gcft8_qso_build_tx_message(const gcft8_qso_session_t* session, char* dst, size_t dst_size);
-static void gcft8_qso_mark_tx_sent(int session_idx, int sent_seq, bool tx_ok, time_t now);
-static bool gcft8_qso_take_pending_log(gcft8_pending_log_t* pending_log);
-static void gcft8_qso_finish_pending_log(const gcft8_pending_log_t* pending_log, bool success);
+static void tranceiver_rtx(gcftx_trx_state_t ptt);
+static void gcftx_qso_sessions_init(void);
+static void gcftx_qso_prune_expired(time_t now);
+static bool gcftx_qso_update_from_direct_candidate(const gcftx_rx_candidate_t* candidate, time_t now, bool* tx_needed);
+static int gcftx_qso_update_from_cq_candidate(const gcftx_rx_candidate_t* candidate, time_t now);
+static int gcftx_qso_select_tx_session(void);
+static bool gcftx_qso_build_tx_message(const gcftx_qso_session_t* session, char* dst, size_t dst_size);
+static void gcftx_qso_mark_tx_sent(int session_idx, int sent_seq, bool tx_ok, time_t now);
+static bool gcftx_qso_take_pending_log(gcftx_pending_log_t* pending_log);
+static void gcftx_qso_finish_pending_log(const gcftx_pending_log_t* pending_log, bool success);
 static bool log_adif_qso(const char* adif_record);
 static void log_qso_to_filter_table(const char* callsign);
-static void gcft8_flush_pending_logs(void);
+static void gcftx_flush_pending_logs(void);
 
-static bool gcft8_shutdown_requested(void)
+static bool gcftx_shutdown_requested(void)
 {
 	return shutdown_requested != 0;
 }
 
-static void gcft8_signal_handler(int signal_number)
+static void gcftx_signal_handler(int signal_number)
 {
 	(void)signal_number;
 	shutdown_requested = 1;
@@ -349,7 +349,7 @@ static void copy_text(char* dst, size_t dst_size, const char* src)
 	dst[len] = '\0';
 }
 
-static bool gcft8_starts_with(const char* text, const char* prefix)
+static bool gcftx_starts_with(const char* text, const char* prefix)
 {
 	if ((text == NULL) || (prefix == NULL))
 		return false;
@@ -357,12 +357,12 @@ static bool gcft8_starts_with(const char* text, const char* prefix)
 	return strncmp(text, prefix, strlen(prefix)) == 0;
 }
 
-static void gcft8_decoded_message_view_init(gcft8_decoded_message_view_t* view)
+static void gcftx_decoded_message_view_init(gcftx_decoded_message_view_t* view)
 {
 	memset(view, 0, sizeof(*view));
 }
 
-static bool gcft8_is_signed_number_text(const char* text)
+static bool gcftx_is_signed_number_text(const char* text)
 {
 	if ((text == NULL) || ((text[0] != '-') && (text[0] != '+')) || !isdigit((unsigned char)text[1]))
 		return false;
@@ -376,7 +376,7 @@ static bool gcft8_is_signed_number_text(const char* text)
 	return true;
 }
 
-static bool gcft8_field_is_locator(const ftx_decoded_field_t* field)
+static bool gcftx_field_is_locator(const ftx_decoded_field_t* field)
 {
 	if ((field == NULL) || (field->type != FTX_FIELD_GRID) || (strlen(field->text) != 4))
 		return false;
@@ -384,7 +384,7 @@ static bool gcft8_field_is_locator(const ftx_decoded_field_t* field)
 	return true;
 }
 
-static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, const char* local_callsign, gcft8_decoded_message_view_t* view)
+static void gcftx_analyze_decoded_message(const ftx_decoded_message_t* decoded, const char* local_callsign, gcftx_decoded_message_view_t* view)
 {
 	const ftx_decoded_field_t* field0;
 	const ftx_decoded_field_t* field1;
@@ -393,7 +393,7 @@ static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, 
 	if (view == NULL)
 		return;
 
-	gcft8_decoded_message_view_init(view);
+	gcftx_decoded_message_view_init(view);
 	if ((decoded == NULL) || (decoded->field_count == 0))
 		return;
 
@@ -402,17 +402,17 @@ static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, 
 	field2 = (decoded->field_count > 2) ? &decoded->fields[2] : NULL;
 
 	if (((field0->type == FTX_FIELD_TOKEN) || (field0->type == FTX_FIELD_TOKEN_WITH_ARG)) &&
-		((strcmp(field0->text, "CQ") == 0) || gcft8_starts_with(field0->text, "CQ ")))
+		((strcmp(field0->text, "CQ") == 0) || gcftx_starts_with(field0->text, "CQ ")))
 	{
 		view->is_cq = true;
 		copy_text(view->to_call, sizeof(view->to_call), field0->text);
-		if (gcft8_starts_with(field0->text, "CQ "))
+		if (gcftx_starts_with(field0->text, "CQ "))
 			copy_text(view->cq_tag, sizeof(view->cq_tag), field0->text + 3);
 
 		if ((field1 != NULL) && (field1->type == FTX_FIELD_CALL))
 			copy_text(view->from_call, sizeof(view->from_call), field1->text);
 
-		if (gcft8_field_is_locator(field2))
+		if (gcftx_field_is_locator(field2))
 		{
 			copy_text(view->locator, sizeof(view->locator), field2->text);
 			view->has_locator = true;
@@ -428,7 +428,7 @@ static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, 
 		if (field2 != NULL)
 		{
 			copy_text(view->message, sizeof(view->message), field2->text);
-			if (gcft8_field_is_locator(field2))
+			if (gcftx_field_is_locator(field2))
 			{
 				copy_text(view->locator, sizeof(view->locator), field2->text);
 				view->has_locator = true;
@@ -439,18 +439,18 @@ static void gcft8_analyze_decoded_message(const ftx_decoded_message_t* decoded, 
 	}
 }
 
-static void gcft8_rx_candidate_init(gcft8_rx_candidate_t* candidate)
+static void gcftx_rx_candidate_init(gcftx_rx_candidate_t* candidate)
 {
 	if (candidate == NULL)
 		return;
 
 	memset(candidate, 0, sizeof(*candidate));
 	candidate->snr = -99;
-	candidate->reject_reason = GCFT8_REJECT_NONE;
-	candidate->display_class = GCFT8_DISPLAY_NORMAL;
+	candidate->reject_reason = GCFTX_REJECT_NONE;
+	candidate->display_class = GCFTX_DISPLAY_NORMAL;
 }
 
-static bool gcft8_find_decoded_slot(ftx_message_t* const decoded_hashtable[], int table_size, const ftx_message_t* message, int* slot_idx, bool* found_duplicate)
+static bool gcftx_find_decoded_slot(ftx_message_t* const decoded_hashtable[], int table_size, const ftx_message_t* message, int* slot_idx, bool* found_duplicate)
 {
 	int idx_hash;
 	int probes = 0;
@@ -483,81 +483,81 @@ static bool gcft8_find_decoded_slot(ftx_message_t* const decoded_hashtable[], in
 	return false;
 }
 
-static bool gcft8_sp_tag_filter_rejects(const char* tag)
+static bool gcftx_sp_tag_filter_rejects(const char* tag)
 {
-	if (gcft8_only_sp_tag_count == 0)
+	if (gcftx_only_sp_tag_count == 0)
 		return false;
 
 	if ((tag == NULL) || (tag[0] == '\0'))
 		return true;
 
-	for (size_t idx = 0; idx < gcft8_only_sp_tag_count; ++idx)
+	for (size_t idx = 0; idx < gcftx_only_sp_tag_count; ++idx)
 	{
-		if (strcmp(tag, gcft8_only_sp_tags[idx]) == 0)
+		if (strcmp(tag, gcftx_only_sp_tags[idx]) == 0)
 			return false;
 	}
 
 	return true;
 }
 
-static gcft8_reject_reason_t gcft8_cq_reject_reason(const gcft8_rx_candidate_t* candidate)
+static gcftx_reject_reason_t gcftx_cq_reject_reason(const gcftx_rx_candidate_t* candidate)
 {
 	if (candidate == NULL)
-		return GCFT8_REJECT_MISSING_CALLSIGN;
+		return GCFTX_REJECT_MISSING_CALLSIGN;
 
 	if (candidate->view.from_call[0] == '\0')
-		return GCFT8_REJECT_MISSING_CALLSIGN;
+		return GCFTX_REJECT_MISSING_CALLSIGN;
 
 	if (ht_check(ht_callsigntable_for_filter, candidate->view.from_call))
-		return GCFT8_REJECT_ALREADY_WORKED;
+		return GCFTX_REJECT_ALREADY_WORKED;
 
 	if (!candidate->view.has_locator)
-		return GCFT8_REJECT_MISSING_LOCATOR;
+		return GCFTX_REJECT_MISSING_LOCATOR;
 
-	if (gcft8_snr_filter_rejects(candidate->snr))
-		return GCFT8_REJECT_SNR;
+	if (gcftx_snr_filter_rejects(candidate->snr))
+		return GCFTX_REJECT_SNR;
 
-	if (gcft8_prefix_filter_rejects(candidate->view.from_call))
-		return GCFT8_REJECT_PREFIX;
+	if (gcftx_prefix_filter_rejects(candidate->view.from_call))
+		return GCFTX_REJECT_PREFIX;
 
-	if (gcft8_locator_zone_filter_rejects(candidate->view.locator))
-		return GCFT8_REJECT_LOCATOR_ZONE;
+	if (gcftx_locator_zone_filter_rejects(candidate->view.locator))
+		return GCFTX_REJECT_LOCATOR_ZONE;
 
-	if (gcft8_sp_tag_filter_rejects(candidate->view.cq_tag))
-		return GCFT8_REJECT_SP_TAG;
+	if (gcftx_sp_tag_filter_rejects(candidate->view.cq_tag))
+		return GCFTX_REJECT_SP_TAG;
 
-	if (gcft8_cq_repeat_guard_rejects(candidate->view.from_call))
-		return GCFT8_REJECT_MAX_REPEATS;
+	if (gcftx_cq_repeat_guard_rejects(candidate->view.from_call))
+		return GCFTX_REJECT_MAX_REPEATS;
 
-	return GCFT8_REJECT_NONE;
+	return GCFTX_REJECT_NONE;
 }
 
-static gcft8_display_class_t gcft8_display_class_for_candidate(const gcft8_rx_candidate_t* candidate)
+static gcftx_display_class_t gcftx_display_class_for_candidate(const gcftx_rx_candidate_t* candidate)
 {
 	if (candidate == NULL)
-		return GCFT8_DISPLAY_NORMAL;
+		return GCFTX_DISPLAY_NORMAL;
 
 	if (candidate->view.is_for_local)
-		return GCFT8_DISPLAY_FOR_LOCAL;
+		return GCFTX_DISPLAY_FOR_LOCAL;
 
 	if (candidate->view.is_cq)
 	{
-		if (candidate->reject_reason == GCFT8_REJECT_ALREADY_WORKED)
-			return GCFT8_DISPLAY_ALREADY_WORKED;
+		if (candidate->reject_reason == GCFTX_REJECT_ALREADY_WORKED)
+			return GCFTX_DISPLAY_ALREADY_WORKED;
 
-		if (candidate->reject_reason == GCFT8_REJECT_MAX_REPEATS)
-			return GCFT8_DISPLAY_MAX_REPEATS;
+		if (candidate->reject_reason == GCFTX_REJECT_MAX_REPEATS)
+			return GCFTX_DISPLAY_MAX_REPEATS;
 
-		if (candidate->reject_reason != GCFT8_REJECT_NONE)
-			return GCFT8_DISPLAY_FILTERED;
+		if (candidate->reject_reason != GCFTX_REJECT_NONE)
+			return GCFTX_DISPLAY_FILTERED;
 
-		return GCFT8_DISPLAY_CQ_CANDIDATE;
+		return GCFTX_DISPLAY_CQ_CANDIDATE;
 	}
 
-	return GCFT8_DISPLAY_NORMAL;
+	return GCFTX_DISPLAY_NORMAL;
 }
 
-static void gcft8_display_rx_candidate(const gcft8_rx_candidate_t* candidate)
+static void gcftx_display_rx_candidate(const gcftx_rx_candidate_t* candidate)
 {
 	const char* color_start = "";
 	const char* color_end = "";
@@ -567,27 +567,27 @@ static void gcft8_display_rx_candidate(const gcft8_rx_candidate_t* candidate)
 
 	switch (candidate->display_class)
 	{
-	case GCFT8_DISPLAY_FOR_LOCAL:
+	case GCFTX_DISPLAY_FOR_LOCAL:
 		color_start = "\033[1;31m";
 		color_end = "\033[0m";
 		break;
-	case GCFT8_DISPLAY_CQ_CANDIDATE:
+	case GCFTX_DISPLAY_CQ_CANDIDATE:
 		color_start = "\033[1;34m";
 		color_end = "\033[0m";
 		break;
-	case GCFT8_DISPLAY_ALREADY_WORKED:
+	case GCFTX_DISPLAY_ALREADY_WORKED:
 		color_start = "\033[1;33m";
 		color_end = "\033[0m";
 		break;
-	case GCFT8_DISPLAY_FILTERED:
+	case GCFTX_DISPLAY_FILTERED:
 		color_start = "\033[1;35m";
 		color_end = "\033[0m";
 		break;
-	case GCFT8_DISPLAY_MAX_REPEATS:
+	case GCFTX_DISPLAY_MAX_REPEATS:
 		color_start = "\033[1;90m";
 		color_end = "\033[0m";
 		break;
-	case GCFT8_DISPLAY_NORMAL:
+	case GCFTX_DISPLAY_NORMAL:
 	default:
 		break;
 	}
@@ -596,7 +596,7 @@ static void gcft8_display_rx_candidate(const gcft8_rx_candidate_t* candidate)
 	printf(" %d %3d %+4.2f %4.0f ~  %s%s%s\n", candidate->snr, candidate->score, candidate->time_sec, candidate->frequency_hz, color_start, candidate->decoded.text, color_end);
 }
 
-static bool gcft8_ensure_float_buffer(float** buffer, size_t* capacity, size_t required)
+static bool gcftx_ensure_float_buffer(float** buffer, size_t* capacity, size_t required)
 {
 	float* resized;
 
@@ -615,7 +615,7 @@ static bool gcft8_ensure_float_buffer(float** buffer, size_t* capacity, size_t r
 	return true;
 }
 
-static bool gcft8_ensure_i16_buffer(int16_t** buffer, size_t* capacity, size_t required)
+static bool gcftx_ensure_i16_buffer(int16_t** buffer, size_t* capacity, size_t required)
 {
 	int16_t* resized;
 
@@ -634,7 +634,7 @@ static bool gcft8_ensure_i16_buffer(int16_t** buffer, size_t* capacity, size_t r
 	return true;
 }
 
-static bool gcft8_ensure_buffer(void** buffer, size_t* capacity, size_t required, size_t element_size)
+static bool gcftx_ensure_buffer(void** buffer, size_t* capacity, size_t required, size_t element_size)
 {
 	void* resized;
 
@@ -656,7 +656,7 @@ static bool gcft8_ensure_buffer(void** buffer, size_t* capacity, size_t required
 	return true;
 }
 
-static void gcft8_tx_context_init(gcft8_tx_context_t* ctx)
+static void gcftx_tx_context_init(gcftx_tx_context_t* ctx)
 {
 	if (ctx == NULL)
 		return;
@@ -665,16 +665,16 @@ static void gcft8_tx_context_init(gcft8_tx_context_t* ctx)
 	gfsk_scratch_init(&ctx->gfsk_scratch);
 }
 
-static bool gcft8_tx_context_ensure(gcft8_tx_context_t* ctx, size_t sample_count)
+static bool gcftx_tx_context_ensure(gcftx_tx_context_t* ctx, size_t sample_count)
 {
 	if (ctx == NULL)
 		return false;
 
-	return gcft8_ensure_float_buffer(&ctx->signal, &ctx->signal_capacity, sample_count) &&
-		gcft8_ensure_i16_buffer(&ctx->pcm, &ctx->pcm_capacity, sample_count);
+	return gcftx_ensure_float_buffer(&ctx->signal, &ctx->signal_capacity, sample_count) &&
+		gcftx_ensure_i16_buffer(&ctx->pcm, &ctx->pcm_capacity, sample_count);
 }
 
-static bool gcft8_tx_audio_layout_for_mode(const gcft8_mode_config_t* mode_cfg, int sample_rate, gcft8_tx_audio_layout_t* layout)
+static bool gcftx_tx_audio_layout_for_mode(const gcftx_mode_config_t* mode_cfg, int sample_rate, gcftx_tx_audio_layout_t* layout)
 {
 	size_t num_samples;
 	size_t lead_samples;
@@ -714,7 +714,7 @@ static bool gcft8_tx_audio_layout_for_mode(const gcft8_mode_config_t* mode_cfg, 
 	return true;
 }
 
-static bool gcft8_tx_context_has_capacity(const gcft8_tx_context_t* ctx, const gcft8_tx_audio_layout_t* layout)
+static bool gcftx_tx_context_has_capacity(const gcftx_tx_context_t* ctx, const gcftx_tx_audio_layout_t* layout)
 {
 	if ((ctx == NULL) || (layout == NULL) || (layout->num_total_samples <= 0))
 		return false;
@@ -726,18 +726,18 @@ static bool gcft8_tx_context_has_capacity(const gcft8_tx_context_t* ctx, const g
 		(ctx->gfsk_scratch.pulse_capacity >= layout->gfsk_pulse_capacity);
 }
 
-static bool gcft8_tx_context_preallocate(gcft8_tx_context_t* ctx, const gcft8_mode_config_t* mode_cfg, int sample_rate)
+static bool gcftx_tx_context_preallocate(gcftx_tx_context_t* ctx, const gcftx_mode_config_t* mode_cfg, int sample_rate)
 {
-	gcft8_tx_audio_layout_t layout;
+	gcftx_tx_audio_layout_t layout;
 
-	if (!gcft8_tx_audio_layout_for_mode(mode_cfg, sample_rate, &layout))
+	if (!gcftx_tx_audio_layout_for_mode(mode_cfg, sample_rate, &layout))
 		return false;
 
-	return gcft8_tx_context_ensure(ctx, (size_t)layout.num_total_samples) &&
+	return gcftx_tx_context_ensure(ctx, (size_t)layout.num_total_samples) &&
 		gfsk_scratch_ensure(&ctx->gfsk_scratch, layout.gfsk_dphi_capacity, layout.gfsk_pulse_capacity);
 }
 
-static void gcft8_tx_context_free(gcft8_tx_context_t* ctx)
+static void gcftx_tx_context_free(gcftx_tx_context_t* ctx)
 {
 	if (ctx == NULL)
 		return;
@@ -745,10 +745,10 @@ static void gcft8_tx_context_free(gcft8_tx_context_t* ctx)
 	free(ctx->signal);
 	free(ctx->pcm);
 	gfsk_scratch_free(&ctx->gfsk_scratch);
-	gcft8_tx_context_init(ctx);
+	gcftx_tx_context_init(ctx);
 }
 
-static void gcft8_rx_context_init(gcft8_rx_context_t* ctx)
+static void gcftx_rx_context_init(gcftx_rx_context_t* ctx)
 {
 	if (ctx == NULL)
 		return;
@@ -756,7 +756,7 @@ static void gcft8_rx_context_init(gcft8_rx_context_t* ctx)
 	memset(ctx, 0, sizeof(*ctx));
 }
 
-static bool gcft8_monitor_config_equal(const monitor_config_t* a, const monitor_config_t* b)
+static bool gcftx_monitor_config_equal(const monitor_config_t* a, const monitor_config_t* b)
 {
 	return (a != NULL) && (b != NULL) &&
 		(a->f_min == b->f_min) &&
@@ -767,7 +767,7 @@ static bool gcft8_monitor_config_equal(const monitor_config_t* a, const monitor_
 		(a->protocol == b->protocol);
 }
 
-static void gcft8_rx_context_free(gcft8_rx_context_t* ctx)
+static void gcftx_rx_context_free(gcftx_rx_context_t* ctx)
 {
 	if (ctx == NULL)
 		return;
@@ -780,15 +780,15 @@ static void gcft8_rx_context_free(gcft8_rx_context_t* ctx)
 	free(ctx->cq_candidates);
 	free(ctx->decoded);
 	free(ctx->decoded_hashtable);
-	gcft8_rx_context_init(ctx);
+	gcftx_rx_context_init(ctx);
 }
 
-static bool gcft8_rx_context_prepare(gcft8_rx_context_t* ctx, const monitor_config_t* config, int max_candidates, int max_decoded_messages)
+static bool gcftx_rx_context_prepare(gcftx_rx_context_t* ctx, const monitor_config_t* config, int max_candidates, int max_decoded_messages)
 {
 	if ((ctx == NULL) || (config == NULL) || (max_candidates <= 0) || (max_decoded_messages <= 0))
 		return false;
 
-	if (ctx->monitor_initialized && !gcft8_monitor_config_equal(&ctx->config, config))
+	if (ctx->monitor_initialized && !gcftx_monitor_config_equal(&ctx->config, config))
 	{
 		monitor_free(&ctx->monitor);
 		ctx->monitor_initialized = false;
@@ -801,12 +801,12 @@ static bool gcft8_rx_context_prepare(gcft8_rx_context_t* ctx, const monitor_conf
 		ctx->monitor_initialized = true;
 	}
 
-	return gcft8_ensure_float_buffer(&ctx->signal, &ctx->signal_capacity, (size_t)ctx->monitor.block_size) &&
-		gcft8_ensure_buffer((void**)&ctx->raw_data, &ctx->raw_data_capacity, (size_t)ctx->monitor.block_size * 2u, sizeof(ctx->raw_data[0])) &&
-		gcft8_ensure_buffer((void**)&ctx->candidate_list, &ctx->candidate_capacity, (size_t)max_candidates, sizeof(ctx->candidate_list[0])) &&
-		gcft8_ensure_buffer((void**)&ctx->cq_candidates, &ctx->cq_candidate_capacity, (size_t)max_candidates, sizeof(ctx->cq_candidates[0])) &&
-		gcft8_ensure_buffer((void**)&ctx->decoded, &ctx->decoded_capacity, (size_t)max_decoded_messages, sizeof(ctx->decoded[0])) &&
-		gcft8_ensure_buffer((void**)&ctx->decoded_hashtable, &ctx->decoded_hashtable_capacity, (size_t)max_decoded_messages, sizeof(ctx->decoded_hashtable[0]));
+	return gcftx_ensure_float_buffer(&ctx->signal, &ctx->signal_capacity, (size_t)ctx->monitor.block_size) &&
+		gcftx_ensure_buffer((void**)&ctx->raw_data, &ctx->raw_data_capacity, (size_t)ctx->monitor.block_size * 2u, sizeof(ctx->raw_data[0])) &&
+		gcftx_ensure_buffer((void**)&ctx->candidate_list, &ctx->candidate_capacity, (size_t)max_candidates, sizeof(ctx->candidate_list[0])) &&
+		gcftx_ensure_buffer((void**)&ctx->cq_candidates, &ctx->cq_candidate_capacity, (size_t)max_candidates, sizeof(ctx->cq_candidates[0])) &&
+		gcftx_ensure_buffer((void**)&ctx->decoded, &ctx->decoded_capacity, (size_t)max_decoded_messages, sizeof(ctx->decoded[0])) &&
+		gcftx_ensure_buffer((void**)&ctx->decoded_hashtable, &ctx->decoded_hashtable_capacity, (size_t)max_decoded_messages, sizeof(ctx->decoded_hashtable[0]));
 }
 
 static int grid_letter_index(char c)
@@ -828,23 +828,23 @@ static int grid_digit_index(char c)
 	return c - '0';
 }
 
-static const gcft8_mode_config_t* gcft8_mode_config(gcft8_mode_t mode)
+static const gcftx_mode_config_t* gcftx_mode_config(gcftx_mode_t mode)
 {
-	for (size_t idx = 0; idx < sizeof(gcft8_mode_configs) / sizeof(gcft8_mode_configs[0]); ++idx)
+	for (size_t idx = 0; idx < sizeof(gcftx_mode_configs) / sizeof(gcftx_mode_configs[0]); ++idx)
 	{
-		if (gcft8_mode_configs[idx].mode == mode)
-			return &gcft8_mode_configs[idx];
+		if (gcftx_mode_configs[idx].mode == mode)
+			return &gcftx_mode_configs[idx];
 	}
 
-	return &gcft8_mode_configs[0];
+	return &gcftx_mode_configs[0];
 }
 
-static const gcft8_mode_config_t* gcft8_current_mode_config(void)
+static const gcftx_mode_config_t* gcftx_current_mode_config(void)
 {
-	return gcft8_mode_config(gcft8_mode);
+	return gcftx_mode_config(gcftx_mode);
 }
 
-static bool gcft8_parse_mode(const char* value, gcft8_mode_t* mode)
+static bool gcftx_parse_mode(const char* value, gcftx_mode_t* mode)
 {
 	char normalized_mode[4];
 	size_t len;
@@ -860,11 +860,11 @@ static bool gcft8_parse_mode(const char* value, gcft8_mode_t* mode)
 		normalized_mode[idx] = (char)tolower((unsigned char)value[idx]);
 	normalized_mode[len] = '\0';
 
-	for (size_t idx = 0; idx < sizeof(gcft8_mode_configs) / sizeof(gcft8_mode_configs[0]); ++idx)
+	for (size_t idx = 0; idx < sizeof(gcftx_mode_configs) / sizeof(gcftx_mode_configs[0]); ++idx)
 	{
-		if (strcmp(normalized_mode, gcft8_mode_configs[idx].name) == 0)
+		if (strcmp(normalized_mode, gcftx_mode_configs[idx].name) == 0)
 		{
-			*mode = gcft8_mode_configs[idx].mode;
+			*mode = gcftx_mode_configs[idx].mode;
 			return true;
 		}
 	}
@@ -872,7 +872,7 @@ static bool gcft8_parse_mode(const char* value, gcft8_mode_t* mode)
 	return false;
 }
 
-static bool gcft8_frequency_for_band(const char* band, gcft8_mode_t mode, int* frequency_hz)
+static bool gcftx_frequency_for_band(const char* band, gcftx_mode_t mode, int* frequency_hz)
 {
 	char normalized_band[4];
 	size_t len;
@@ -896,23 +896,23 @@ static bool gcft8_frequency_for_band(const char* band, gcft8_mode_t mode, int* f
 	}
 	normalized_band[len] = '\0';
 
-	for (size_t idx = 0; idx < sizeof(gcft8_band_frequencies) / sizeof(gcft8_band_frequencies[0]); ++idx)
+	for (size_t idx = 0; idx < sizeof(gcftx_band_frequencies) / sizeof(gcftx_band_frequencies[0]); ++idx)
 	{
-		if (strcmp(normalized_band, gcft8_band_frequencies[idx].band) == 0)
+		if (strcmp(normalized_band, gcftx_band_frequencies[idx].band) == 0)
 		{
 			int frequency;
 
 			switch (mode)
 			{
-				case GCFT8_MODE_FT2:
-					frequency = gcft8_band_frequencies[idx].ft2_frequency_hz;
+				case GCFTX_MODE_FT2:
+					frequency = gcftx_band_frequencies[idx].ft2_frequency_hz;
 					break;
-				case GCFT8_MODE_FT4:
-					frequency = gcft8_band_frequencies[idx].ft4_frequency_hz;
+				case GCFTX_MODE_FT4:
+					frequency = gcftx_band_frequencies[idx].ft4_frequency_hz;
 					break;
-				case GCFT8_MODE_FT8:
+				case GCFTX_MODE_FT8:
 				default:
-					frequency = gcft8_band_frequencies[idx].ft8_frequency_hz;
+					frequency = gcftx_band_frequencies[idx].ft8_frequency_hz;
 					break;
 			}
 
@@ -927,21 +927,21 @@ static bool gcft8_frequency_for_band(const char* band, gcft8_mode_t mode, int* f
 	return false;
 }
 
-static const char* gcft8_adif_mode_name(void)
+static const char* gcftx_adif_mode_name(void)
 {
-	switch (gcft8_mode)
+	switch (gcftx_mode)
 	{
-		case GCFT8_MODE_FT2:
+		case GCFTX_MODE_FT2:
 			return "FT2";
-		case GCFT8_MODE_FT4:
+		case GCFTX_MODE_FT4:
 			return "FT4";
-		case GCFT8_MODE_FT8:
+		case GCFTX_MODE_FT8:
 		default:
 			return "FT8";
 	}
 }
 
-static bool gcft8_normalize_band_adif(const char* band, char* out, size_t out_size)
+static bool gcftx_normalize_band_adif(const char* band, char* out, size_t out_size)
 {
 	char normalized_band[4];
 	size_t len;
@@ -972,22 +972,22 @@ static bool gcft8_normalize_band_adif(const char* band, char* out, size_t out_si
 	return true;
 }
 
-static void gcft8_set_filter_band_context(const char* band)
+static void gcftx_set_filter_band_context(const char* band)
 {
-	if (gcft8_normalize_band_adif(band, gcft8_filter_band, sizeof(gcft8_filter_band)))
+	if (gcftx_normalize_band_adif(band, gcftx_filter_band, sizeof(gcftx_filter_band)))
 	{
-		gcft8_filter_has_band = true;
+		gcftx_filter_has_band = true;
 	}
 }
 
-static void gcft8_set_filter_frequency_context(int frequency_hz)
+static void gcftx_set_filter_frequency_context(int frequency_hz)
 {
-	gcft8_filter_has_band = false;
-	gcft8_filter_band[0] = '\0';
-	gcft8_filter_frequency_mhz = frequency_hz / 1000000;
+	gcftx_filter_has_band = false;
+	gcftx_filter_band[0] = '\0';
+	gcftx_filter_frequency_mhz = frequency_hz / 1000000;
 }
 
-static void gcft8_update_adif_log_filename(const char* local_callsign, char* log_file_name, size_t log_file_name_size)
+static void gcftx_update_adif_log_filename(const char* local_callsign, char* log_file_name, size_t log_file_name_size)
 {
 	char safe_callsign[20];
 	size_t out_idx = 0;
@@ -1014,7 +1014,7 @@ static void gcft8_update_adif_log_filename(const char* local_callsign, char* log
 	snprintf(log_file_name, log_file_name_size, "QSO_%s.adif", safe_callsign);
 }
 
-static bool ft8_parse_filter_mode(const char* value, int* filter_mode)
+static bool ftx_parse_filter_mode(const char* value, int* filter_mode)
 {
 	int result = 0;
 
@@ -1029,37 +1029,37 @@ static bool ft8_parse_filter_mode(const char* value, int* filter_mode)
 		result = (result * 10) + (value[idx] - '0');
 	}
 
-	if ((result < FT8_FILTER_LISTEN_ONLY) || (result > FT8_FILTER_MIN_SNR))
+	if ((result < FTX_FILTER_LISTEN_ONLY) || (result > FTX_FILTER_MIN_SNR))
 		return false;
 
 	*filter_mode = result;
 	return true;
 }
 
-static const char* ft8_filter_mode_name(int filter_mode)
+static const char* ftx_filter_mode_name(int filter_mode)
 {
 	switch (filter_mode)
 	{
-	case FT8_FILTER_LISTEN_ONLY:
+	case FTX_FILTER_LISTEN_ONLY:
 		return "Listen only, no automatic TX";
-	case FT8_FILTER_RANDOM_CQ:
+	case FTX_FILTER_RANDOM_CQ:
 		return "Random CQ selection";
-	case FT8_FILTER_BEST_DECODE_SCORE:
+	case FTX_FILTER_BEST_DECODE_SCORE:
 		return "Best decode score";
-	case FT8_FILTER_MAX_DISTANCE:
+	case FTX_FILTER_MAX_DISTANCE:
 		return "Maximum distance";
-	case FT8_FILTER_MIN_DISTANCE:
+	case FTX_FILTER_MIN_DISTANCE:
 		return "Minimum distance";
-	case FT8_FILTER_MAX_SNR:
+	case FTX_FILTER_MAX_SNR:
 		return "Maximum SNR";
-	case FT8_FILTER_MIN_SNR:
+	case FTX_FILTER_MIN_SNR:
 		return "Minimum SNR";
 	default:
 		return "Unknown";
 	}
 }
 
-static bool gcft8_parse_int_range(const char* value, int min_value, int max_value, int* result)
+static bool gcftx_parse_int_range(const char* value, int min_value, int max_value, int* result)
 {
 	char* endptr = NULL;
 	long parsed;
@@ -1079,7 +1079,7 @@ static bool gcft8_parse_int_range(const char* value, int min_value, int max_valu
 	return true;
 }
 
-static bool gcft8_parse_snr_min(const char* value, int* snr_min)
+static bool gcftx_parse_snr_min(const char* value, int* snr_min)
 {
 	char* endptr = NULL;
 	long result;
@@ -1099,12 +1099,12 @@ static bool gcft8_parse_snr_min(const char* value, int* snr_min)
 	return true;
 }
 
-static bool gcft8_snr_filter_rejects(int snr)
+static bool gcftx_snr_filter_rejects(int snr)
 {
-	return gcft8_snr_min_enabled && (snr < gcft8_snr_min);
+	return gcftx_snr_min_enabled && (snr < gcftx_snr_min);
 }
 
-static bool gcft8_parse_prefix_token(const char* start, size_t len, char* dst, size_t dst_size)
+static bool gcftx_parse_prefix_token(const char* start, size_t len, char* dst, size_t dst_size)
 {
 	size_t out_len = 0;
 
@@ -1134,9 +1134,9 @@ static bool gcft8_parse_prefix_token(const char* start, size_t len, char* dst, s
 	return true;
 }
 
-static bool gcft8_parse_only_prefixes(const char* value)
+static bool gcftx_parse_only_prefixes(const char* value)
 {
-	char parsed[GCFT8_MAX_ONLY_PREFIXES][GCFT8_PREFIX_TEXT_SIZE];
+	char parsed[GCFTX_MAX_ONLY_PREFIXES][GCFTX_PREFIX_TEXT_SIZE];
 	size_t parsed_count = 0;
 	size_t token_start = 0;
 	size_t idx = 0;
@@ -1150,10 +1150,10 @@ static bool gcft8_parse_only_prefixes(const char* value)
 	{
 		if ((value[idx] == ',') || (value[idx] == '\0'))
 		{
-			if (parsed_count >= GCFT8_MAX_ONLY_PREFIXES)
+			if (parsed_count >= GCFTX_MAX_ONLY_PREFIXES)
 				return false;
 
-			if (!gcft8_parse_prefix_token(value + token_start, idx - token_start, parsed[parsed_count], sizeof(parsed[parsed_count])))
+			if (!gcftx_parse_prefix_token(value + token_start, idx - token_start, parsed[parsed_count], sizeof(parsed[parsed_count])))
 				return false;
 
 			++parsed_count;
@@ -1167,12 +1167,12 @@ static bool gcft8_parse_only_prefixes(const char* value)
 		++idx;
 	}
 
-	memcpy(gcft8_only_prefixes, parsed, sizeof(parsed));
-	gcft8_only_prefix_count = parsed_count;
+	memcpy(gcftx_only_prefixes, parsed, sizeof(parsed));
+	gcftx_only_prefix_count = parsed_count;
 	return true;
 }
 
-static bool gcft8_parse_sp_tag_token(const char* start, size_t len, char* dst, size_t dst_size)
+static bool gcftx_parse_sp_tag_token(const char* start, size_t len, char* dst, size_t dst_size)
 {
 	size_t out_len = 0;
 	int digits = 0;
@@ -1217,9 +1217,9 @@ static bool gcft8_parse_sp_tag_token(const char* start, size_t len, char* dst, s
 	return true;
 }
 
-static bool gcft8_parse_only_sp_tags(const char* value)
+static bool gcftx_parse_only_sp_tags(const char* value)
 {
-	char parsed[GCFT8_MAX_SP_TAGS][GCFT8_SP_TAG_TEXT_SIZE];
+	char parsed[GCFTX_MAX_SP_TAGS][GCFTX_SP_TAG_TEXT_SIZE];
 	size_t parsed_count = 0;
 	size_t token_start = 0;
 	size_t idx = 0;
@@ -1233,10 +1233,10 @@ static bool gcft8_parse_only_sp_tags(const char* value)
 	{
 		if ((value[idx] == ',') || (value[idx] == '\0'))
 		{
-			if (parsed_count >= GCFT8_MAX_SP_TAGS)
+			if (parsed_count >= GCFTX_MAX_SP_TAGS)
 				return false;
 
-			if (!gcft8_parse_sp_tag_token(value + token_start, idx - token_start, parsed[parsed_count], sizeof(parsed[parsed_count])))
+			if (!gcftx_parse_sp_tag_token(value + token_start, idx - token_start, parsed[parsed_count], sizeof(parsed[parsed_count])))
 				return false;
 
 			++parsed_count;
@@ -1250,13 +1250,13 @@ static bool gcft8_parse_only_sp_tags(const char* value)
 		++idx;
 	}
 
-	memset(gcft8_only_sp_tags, 0, sizeof(gcft8_only_sp_tags));
-	memcpy(gcft8_only_sp_tags, parsed, parsed_count * sizeof(parsed[0]));
-	gcft8_only_sp_tag_count = parsed_count;
+	memset(gcftx_only_sp_tags, 0, sizeof(gcftx_only_sp_tags));
+	memcpy(gcftx_only_sp_tags, parsed, parsed_count * sizeof(parsed[0]));
+	gcftx_only_sp_tag_count = parsed_count;
 	return true;
 }
 
-static bool gcft8_is_simple_portable_suffix(const char* suffix)
+static bool gcftx_is_simple_portable_suffix(const char* suffix)
 {
 	return (strcmp(suffix, "P") == 0) ||
 	       (strcmp(suffix, "M") == 0) ||
@@ -1265,7 +1265,7 @@ static bool gcft8_is_simple_portable_suffix(const char* suffix)
 	       (strcmp(suffix, "QRP") == 0);
 }
 
-static void gcft8_clean_callsign_for_prefix(const char* callsign, char* dst, size_t dst_size)
+static void gcftx_clean_callsign_for_prefix(const char* callsign, char* dst, size_t dst_size)
 {
 	size_t out_len = 0;
 
@@ -1284,36 +1284,36 @@ static void gcft8_clean_callsign_for_prefix(const char* callsign, char* dst, siz
 	{
 		char* slash = strrchr(dst, '/');
 
-		if ((slash == NULL) || !gcft8_is_simple_portable_suffix(slash + 1))
+		if ((slash == NULL) || !gcftx_is_simple_portable_suffix(slash + 1))
 			break;
 
 		*slash = '\0';
 	}
 }
 
-static bool gcft8_prefix_filter_rejects(const char* callsign)
+static bool gcftx_prefix_filter_rejects(const char* callsign)
 {
 	char cleaned_callsign[FT8_TOKEN_TEXT_SIZE];
 
-	if (gcft8_only_prefix_count == 0)
+	if (gcftx_only_prefix_count == 0)
 		return false;
 
-	gcft8_clean_callsign_for_prefix(callsign, cleaned_callsign, sizeof(cleaned_callsign));
+	gcftx_clean_callsign_for_prefix(callsign, cleaned_callsign, sizeof(cleaned_callsign));
 	if (cleaned_callsign[0] == '\0')
 		return true;
 
-	for (size_t idx = 0; idx < gcft8_only_prefix_count; ++idx)
+	for (size_t idx = 0; idx < gcftx_only_prefix_count; ++idx)
 	{
-		size_t prefix_len = strlen(gcft8_only_prefixes[idx]);
+		size_t prefix_len = strlen(gcftx_only_prefixes[idx]);
 
-		if (strncmp(cleaned_callsign, gcft8_only_prefixes[idx], prefix_len) == 0)
+		if (strncmp(cleaned_callsign, gcftx_only_prefixes[idx], prefix_len) == 0)
 			return false;
 	}
 
 	return true;
 }
 
-static bool gcft8_parse_locator_zone_endpoint(const char* start, size_t len, int* lon, int* lat)
+static bool gcftx_parse_locator_zone_endpoint(const char* start, size_t len, int* lon, int* lat)
 {
 	char lon_char;
 	char lat_char;
@@ -1341,7 +1341,7 @@ static bool gcft8_parse_locator_zone_endpoint(const char* start, size_t len, int
 	return true;
 }
 
-static bool gcft8_parse_locator_zone_token(const char* start, size_t len, gcft8_locator_zone_t* zone)
+static bool gcftx_parse_locator_zone_token(const char* start, size_t len, gcftx_locator_zone_t* zone)
 {
 	bool found_colon = false;
 	size_t colon_pos = 0;
@@ -1368,10 +1368,10 @@ static bool gcft8_parse_locator_zone_token(const char* start, size_t len, gcft8_
 	if (!found_colon)
 		return false;
 
-	if (!gcft8_parse_locator_zone_endpoint(start, colon_pos, &lon_a, &lat_a))
+	if (!gcftx_parse_locator_zone_endpoint(start, colon_pos, &lon_a, &lat_a))
 		return false;
 
-	if (!gcft8_parse_locator_zone_endpoint(start + colon_pos + 1, len - colon_pos - 1, &lon_b, &lat_b))
+	if (!gcftx_parse_locator_zone_endpoint(start + colon_pos + 1, len - colon_pos - 1, &lon_b, &lat_b))
 		return false;
 
 	zone->lon_min = (lon_a < lon_b) ? lon_a : lon_b;
@@ -1381,9 +1381,9 @@ static bool gcft8_parse_locator_zone_token(const char* start, size_t len, gcft8_
 	return true;
 }
 
-static bool gcft8_parse_locator_zones(const char* value)
+static bool gcftx_parse_locator_zones(const char* value)
 {
-	gcft8_locator_zone_t parsed[GCFT8_MAX_LOCATOR_ZONES];
+	gcftx_locator_zone_t parsed[GCFTX_MAX_LOCATOR_ZONES];
 	size_t parsed_count = 0;
 	size_t token_start = 0;
 	size_t idx = 0;
@@ -1397,10 +1397,10 @@ static bool gcft8_parse_locator_zones(const char* value)
 	{
 		if ((value[idx] == ',') || (value[idx] == '\0'))
 		{
-			if (parsed_count >= GCFT8_MAX_LOCATOR_ZONES)
+			if (parsed_count >= GCFTX_MAX_LOCATOR_ZONES)
 				return false;
 
-			if (!gcft8_parse_locator_zone_token(value + token_start, idx - token_start, &parsed[parsed_count]))
+			if (!gcftx_parse_locator_zone_token(value + token_start, idx - token_start, &parsed[parsed_count]))
 				return false;
 
 			++parsed_count;
@@ -1414,18 +1414,18 @@ static bool gcft8_parse_locator_zones(const char* value)
 		++idx;
 	}
 
-	memset(gcft8_locator_zones, 0, sizeof(gcft8_locator_zones));
-	memcpy(gcft8_locator_zones, parsed, parsed_count * sizeof(parsed[0]));
-	gcft8_locator_zone_count = parsed_count;
+	memset(gcftx_locator_zones, 0, sizeof(gcftx_locator_zones));
+	memcpy(gcftx_locator_zones, parsed, parsed_count * sizeof(parsed[0]));
+	gcftx_locator_zone_count = parsed_count;
 	return true;
 }
 
-static bool gcft8_locator_zone_filter_rejects(const char* locator)
+static bool gcftx_locator_zone_filter_rejects(const char* locator)
 {
 	int lon;
 	int lat;
 
-	if (gcft8_locator_zone_count == 0)
+	if (gcftx_locator_zone_count == 0)
 		return false;
 
 	if ((locator == NULL) || (locator[0] < 'A') || (locator[0] > 'R') || (locator[1] < 'A') || (locator[1] > 'R'))
@@ -1434,9 +1434,9 @@ static bool gcft8_locator_zone_filter_rejects(const char* locator)
 	lon = locator[0] - 'A';
 	lat = locator[1] - 'A';
 
-	for (size_t idx = 0; idx < gcft8_locator_zone_count; ++idx)
+	for (size_t idx = 0; idx < gcftx_locator_zone_count; ++idx)
 	{
-		const gcft8_locator_zone_t* zone = &gcft8_locator_zones[idx];
+		const gcftx_locator_zone_t* zone = &gcftx_locator_zones[idx];
 
 		if ((lon >= zone->lon_min) && (lon <= zone->lon_max) && (lat >= zone->lat_min) && (lat <= zone->lat_max))
 			return false;
@@ -1445,23 +1445,23 @@ static bool gcft8_locator_zone_filter_rejects(const char* locator)
 	return true;
 }
 
-static void gcft8_format_only_prefixes(char* dst, size_t dst_size)
+static void gcftx_format_only_prefixes(char* dst, size_t dst_size)
 {
 	size_t offset = 0;
 
 	if (dst_size == 0)
 		return;
 
-	if (gcft8_only_prefix_count == 0)
+	if (gcftx_only_prefix_count == 0)
 	{
 		copy_text(dst, dst_size, "off");
 		return;
 	}
 
 	dst[0] = '\0';
-	for (size_t idx = 0; idx < gcft8_only_prefix_count; ++idx)
+	for (size_t idx = 0; idx < gcftx_only_prefix_count; ++idx)
 	{
-		int written = snprintf(dst + offset, dst_size - offset, "%s%s", (idx == 0) ? "" : ",", gcft8_only_prefixes[idx]);
+		int written = snprintf(dst + offset, dst_size - offset, "%s%s", (idx == 0) ? "" : ",", gcftx_only_prefixes[idx]);
 
 		if (written < 0)
 			break;
@@ -1476,21 +1476,21 @@ static void gcft8_format_only_prefixes(char* dst, size_t dst_size)
 	}
 }
 
-static void gcft8_format_only_sp_tags(char* dst, size_t dst_size)
+static void gcftx_format_only_sp_tags(char* dst, size_t dst_size)
 {
 	size_t offset = 0;
 
 	if (dst_size == 0)
 		return;
 
-	if (gcft8_only_sp_tag_count == 0)
+	if (gcftx_only_sp_tag_count == 0)
 	{
 		copy_text(dst, dst_size, "off");
 		return;
 	}
 
 	dst[0] = '\0';
-	for (size_t idx = 0; idx < gcft8_only_sp_tag_count; ++idx)
+	for (size_t idx = 0; idx < gcftx_only_sp_tag_count; ++idx)
 	{
 		if (idx > 0)
 		{
@@ -1501,34 +1501,34 @@ static void gcft8_format_only_sp_tags(char* dst, size_t dst_size)
 			dst[offset] = '\0';
 		}
 
-		for (size_t src_idx = 0; gcft8_only_sp_tags[idx][src_idx] != '\0'; ++src_idx)
+		for (size_t src_idx = 0; gcftx_only_sp_tags[idx][src_idx] != '\0'; ++src_idx)
 		{
 			if ((offset + 1) >= dst_size)
 				break;
 
-			dst[offset++] = gcft8_only_sp_tags[idx][src_idx];
+			dst[offset++] = gcftx_only_sp_tags[idx][src_idx];
 			dst[offset] = '\0';
 		}
 	}
 }
 
-static void gcft8_format_locator_zones(char* dst, size_t dst_size)
+static void gcftx_format_locator_zones(char* dst, size_t dst_size)
 {
 	size_t offset = 0;
 
 	if (dst_size == 0)
 		return;
 
-	if (gcft8_locator_zone_count == 0)
+	if (gcftx_locator_zone_count == 0)
 	{
 		copy_text(dst, dst_size, "off");
 		return;
 	}
 
 	dst[0] = '\0';
-	for (size_t idx = 0; idx < gcft8_locator_zone_count; ++idx)
+	for (size_t idx = 0; idx < gcftx_locator_zone_count; ++idx)
 	{
-		const gcft8_locator_zone_t* zone = &gcft8_locator_zones[idx];
+		const gcftx_locator_zone_t* zone = &gcftx_locator_zones[idx];
 		int written = snprintf(dst + offset, dst_size - offset, "%s%c%c:%c%c",
 			(idx == 0) ? "" : ",",
 			(char)('A' + zone->lon_min),
@@ -1549,7 +1549,7 @@ static void gcft8_format_locator_zones(char* dst, size_t dst_size)
 	}
 }
 
-static bool ft8_getrandom_u32(uint32_t* value)
+static bool ftx_getrandom_u32(uint32_t* value)
 {
 	uint8_t* bytes = (uint8_t*)value;
 	size_t remaining = sizeof(*value);
@@ -1578,7 +1578,7 @@ static bool ft8_getrandom_u32(uint32_t* value)
 	return true;
 }
 
-static uint32_t ft8_fallback_random_u32(void)
+static uint32_t ftx_fallback_random_u32(void)
 {
 	static uint32_t state;
 
@@ -1595,17 +1595,17 @@ static uint32_t ft8_fallback_random_u32(void)
 	return state;
 }
 
-static uint32_t ft8_random_u32(void)
+static uint32_t ftx_random_u32(void)
 {
 	uint32_t value;
 
-	if (ft8_getrandom_u32(&value))
+	if (ftx_getrandom_u32(&value))
 		return value;
 
-	return ft8_fallback_random_u32();
+	return ftx_fallback_random_u32();
 }
 
-static int ft8_random_index(int count)
+static int ftx_random_index(int count)
 {
 	uint32_t limit;
 	uint32_t threshold;
@@ -1618,7 +1618,7 @@ static int ft8_random_index(int count)
 
 	for (;;)
 	{
-		uint32_t value = ft8_random_u32();
+		uint32_t value = ftx_random_u32();
 		if (value >= threshold)
 			return (int)(value % limit);
 	}
@@ -1742,7 +1742,7 @@ static int round_to_int(float value)
 	return (int)((value >= 0.0f) ? value + 0.5f : value - 0.5f);
 }
 
-static int gcft8_estimate_snr(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, const ftx_message_t* message)
+static int gcftx_estimate_snr(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, const ftx_message_t* message)
 {
 	uint8_t tones[FT2_NN];
 	int num_symbols;
@@ -1820,11 +1820,11 @@ static int gcft8_estimate_snr(const ftx_waterfall_t* wf, const ftx_candidate_t* 
 /* Global FT8 info. */
 
 
-FT8info FT8 = {
+FTXinfo FTX = {
 	.Local_CALLSIGN = "",
 	.Local_LOCATOR = "",
 	
-	.TRX_status = GCFT8_TRX_RX,
+	.TRX_status = GCFTX_TRX_RX,
 	.TRX_status_lock = PTHREAD_MUTEX_INITIALIZER,
 	.RX_status_cond = PTHREAD_COND_INITIALIZER,
 	.TX_status_cond = PTHREAD_COND_INITIALIZER,
@@ -1848,7 +1848,7 @@ soundInfo sound={
 	.playback_sound_rate = 12000
 };
 
-static char gcft8_sound_device_text[GCFT8_SOUND_DEVICE_TEXT_SIZE];
+static char gcftx_sound_device_text[GCFTX_SOUND_DEVICE_TEXT_SIZE];
 
 /* Global serial info. */
 
@@ -1863,9 +1863,9 @@ serial_t serial = {
 	.finished=0
 };
 
-static bool ft8_listen_only_filter_active(void)
+static bool ftx_listen_only_filter_active(void)
 {
-	return FT8.filter_on_cq == FT8_FILTER_LISTEN_ONLY;
+	return FTX.filter_on_cq == FTX_FILTER_LISTEN_ONLY;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1947,7 +1947,7 @@ static bool wait_for_slot_start(float slot_time)
 	long wait_nsec;
 
 	if (slot <= 0.0)
-		return !gcft8_shutdown_requested();
+		return !gcftx_shutdown_requested();
 
 	gettimeofday(&wall_now, NULL);
 	wall_time = wall_now.tv_sec + wall_now.tv_usec / 1000000.0;
@@ -1972,7 +1972,7 @@ static bool wait_for_slot_start(float slot_time)
 		mono_target.tv_nsec -= 1000000000L;
 	}
 
-	while (!gcft8_shutdown_requested())
+	while (!gcftx_shutdown_requested())
 	{
 		int rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &mono_target, NULL);
 		if (rc == 0)
@@ -1993,21 +1993,21 @@ static bool wait_for_tx_slot_start(float slot_time, float late_grace)
 	double since_slot_start;
 
 	if (slot <= 0.0)
-		return !gcft8_shutdown_requested();
+		return !gcftx_shutdown_requested();
 
 	current_time = now();
 	slot_start = floor(current_time / slot) * slot;
 	since_slot_start = current_time - slot_start;
 
 	if ((grace > 0.0) && (since_slot_start >= 0.0) && (since_slot_start <= grace))
-		return !gcft8_shutdown_requested();
+		return !gcftx_shutdown_requested();
 
 	return wait_for_slot_start(slot_time);
 }
 
 static void printDateTime_log(){
 	clear_status_line();
-	const gcft8_mode_config_t* mode_cfg = gcft8_current_mode_config();
+	const gcftx_mode_config_t* mode_cfg = gcftx_current_mode_config();
 	long long slot_ms = (long long)(mode_cfg->slot_time * 1000.0f + 0.5f);
 	long long now_ms = (long long)(now() * 1000.0);
 	long long slot_start_ms = (now_ms / slot_ms) * slot_ms;
@@ -2020,7 +2020,7 @@ static void printDateTime_log(){
 		printf("%d-%02d-%02d %02d:%02d:%02d.%03d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
 }
 
-static void print_slot_separator(const gcft8_mode_config_t* mode_cfg, const char* direction)
+static void print_slot_separator(const gcftx_mode_config_t* mode_cfg, const char* direction)
 {
 	long long slot_ms;
 	long long now_ms;
@@ -2030,7 +2030,7 @@ static void print_slot_separator(const gcft8_mode_config_t* mode_cfg, const char
 	struct tm tm;
 
 	if (mode_cfg == NULL)
-		mode_cfg = gcft8_current_mode_config();
+		mode_cfg = gcftx_current_mode_config();
 	if (direction == NULL)
 		direction = "";
 
@@ -2403,27 +2403,27 @@ static void unlock_TX_thread(){
 	#if DEBUG
 	printf( "UnLock TX thread\n");
 	#endif
-	pthread_mutex_lock(&FT8.TRX_status_lock);
-	FT8.TRX_status = GCFT8_TRX_TX;
-	pthread_cond_signal(&FT8.TX_status_cond);
-	pthread_mutex_unlock(&FT8.TRX_status_lock);
+	pthread_mutex_lock(&FTX.TRX_status_lock);
+	FTX.TRX_status = GCFTX_TRX_TX;
+	pthread_cond_signal(&FTX.TX_status_cond);
+	pthread_mutex_unlock(&FTX.TRX_status_lock);
 }
 
 static void unlock_RX_thread(){
 	#if DEBUG
 	printf( "UnLock RX thread\n");
 	#endif
-	pthread_mutex_lock(&FT8.TRX_status_lock);
-	FT8.TRX_status = GCFT8_TRX_RX;
-	pthread_cond_signal(&FT8.RX_status_cond);
-	pthread_mutex_unlock(&FT8.TRX_status_lock);
+	pthread_mutex_lock(&FTX.TRX_status_lock);
+	FTX.TRX_status = GCFTX_TRX_RX;
+	pthread_cond_signal(&FTX.RX_status_cond);
+	pthread_mutex_unlock(&FTX.TRX_status_lock);
 }
 
 
 
 static void RX_FT8()
 {
-	const gcft8_mode_config_t* mode_cfg = gcft8_current_mode_config();
+	const gcftx_mode_config_t* mode_cfg = gcftx_current_mode_config();
 	const int num_samples = (int)(mode_cfg->rx_capture_time * sound.capture_sound_rate);
 	const int kMax_candidates = 120;
 	const int kMin_score = 2; // (10) Minimum sync score threshold for candidates
@@ -2439,7 +2439,7 @@ static void RX_FT8()
 		.protocol = mode_cfg->protocol
 	};
 	
-	if (!gcft8_rx_context_prepare(&gcft8_rx_context, &mon_cfg, kMax_candidates, kMax_decoded_messages))
+	if (!gcftx_rx_context_prepare(&gcftx_rx_context, &mon_cfg, kMax_candidates, kMax_decoded_messages))
 	{
 		fprintf(stderr, "Out of memory while preparing RX context\n");
 		exit(1);
@@ -2447,18 +2447,18 @@ static void RX_FT8()
 
 	snd_pcm_sframes_t rc;
 	
-	while(!gcft8_shutdown_requested()){
-		pthread_mutex_lock(&FT8.TRX_status_lock);
-		gcft8_trx_state_t stat = FT8.TRX_status;
-		pthread_mutex_unlock(&FT8.TRX_status_lock);
-		if(stat == GCFT8_TRX_RX){
-			monitor_t* mon = &gcft8_rx_context.monitor;
-			float* signal = gcft8_rx_context.signal;
-			char* raw_data = gcft8_rx_context.raw_data;
-			ftx_candidate_t* candidate_list = gcft8_rx_context.candidate_list;
-			gcft8_rx_candidate_t* cq_candidates = gcft8_rx_context.cq_candidates;
-			ftx_message_t* decoded = gcft8_rx_context.decoded;
-			ftx_message_t** decoded_hashtable = gcft8_rx_context.decoded_hashtable;
+	while(!gcftx_shutdown_requested()){
+		pthread_mutex_lock(&FTX.TRX_status_lock);
+		gcftx_trx_state_t stat = FTX.TRX_status;
+		pthread_mutex_unlock(&FTX.TRX_status_lock);
+		if(stat == GCFTX_TRX_RX){
+			monitor_t* mon = &gcftx_rx_context.monitor;
+			float* signal = gcftx_rx_context.signal;
+			char* raw_data = gcftx_rx_context.raw_data;
+			ftx_candidate_t* candidate_list = gcftx_rx_context.candidate_list;
+			gcftx_rx_candidate_t* cq_candidates = gcftx_rx_context.cq_candidates;
+			ftx_message_t* decoded = gcftx_rx_context.decoded;
+			ftx_message_t** decoded_hashtable = gcftx_rx_context.decoded_hashtable;
 
 			monitor_reset(mon);
 			
@@ -2475,12 +2475,12 @@ static void RX_FT8()
 			
 			snd_pcm_reset(sound.capture_handle);
 			
-			for (int frame_pos = 0; !gcft8_shutdown_requested() && frame_pos + mon->block_size <= num_samples; frame_pos += mon->block_size)
+			for (int frame_pos = 0; !gcftx_shutdown_requested() && frame_pos + mon->block_size <= num_samples; frame_pos += mon->block_size)
 			{
 				// Process the waveform data frame by frame - you could have a live loop here with data from an audio device
 
 				int frames_read = 0;
-				while (!gcft8_shutdown_requested() && frames_read < mon->block_size)
+				while (!gcftx_shutdown_requested() && frames_read < mon->block_size)
 				{
 					rc = snd_pcm_readi(sound.capture_handle, raw_data + (frames_read * 2), (snd_pcm_uframes_t)(mon->block_size - frames_read));
 					if (rc < 0)
@@ -2521,9 +2521,9 @@ static void RX_FT8()
 			bool should_unlock_tx = false;
 			time_t rx_now = time(NULL);
 
-			pthread_mutex_lock(&FT8.TRX_status_lock);
-			gcft8_qso_prune_expired(rx_now);
-			pthread_mutex_unlock(&FT8.TRX_status_lock);
+			pthread_mutex_lock(&FTX.TRX_status_lock);
+			gcftx_qso_prune_expired(rx_now);
+			pthread_mutex_unlock(&FTX.TRX_status_lock);
 
 			// Hash table for decoded messages (to check for duplicates)
 			int num_decoded = 0;
@@ -2534,7 +2534,7 @@ static void RX_FT8()
 			}
 
 			// Go over candidates and attempt to decode messages
-			for (int idx = 0; !gcft8_shutdown_requested() && idx < num_candidates; ++idx)
+			for (int idx = 0; !gcftx_shutdown_requested() && idx < num_candidates; ++idx)
 			{
 				
 				const ftx_candidate_t* cand = &candidate_list[idx];
@@ -2567,7 +2567,7 @@ static void RX_FT8()
 				#endif
 				int idx_hash = 0;
 				bool found_duplicate = false;
-				if (!gcft8_find_decoded_slot(decoded_hashtable, kMax_decoded_messages, &message, &idx_hash, &found_duplicate))
+				if (!gcftx_find_decoded_slot(decoded_hashtable, kMax_decoded_messages, &message, &idx_hash, &found_duplicate))
 				{
 						#if DEBUG
 						printf( "Decoded message table is full\n");
@@ -2583,8 +2583,8 @@ static void RX_FT8()
 					continue;
 				}
 
-				gcft8_rx_candidate_t rx_candidate;
-				gcft8_rx_candidate_init(&rx_candidate);
+				gcftx_rx_candidate_t rx_candidate;
+				gcftx_rx_candidate_init(&rx_candidate);
 				ftx_message_rc_t message_status = ftx_message_decode(&message, &callsign_hash_if, &rx_candidate.decoded);
 				if (message_status != FTX_MESSAGE_RC_OK)
 				{
@@ -2601,57 +2601,57 @@ static void RX_FT8()
 				rx_candidate.frequency_hz = freq_hz;
 				rx_candidate.time_sec = time_sec;
 				rx_candidate.score = cand->score;
-				rx_candidate.snr = gcft8_estimate_snr(&mon->wf, cand, &message);
-				gcft8_analyze_decoded_message(&rx_candidate.decoded, FT8.Local_CALLSIGN, &rx_candidate.view);
+				rx_candidate.snr = gcftx_estimate_snr(&mon->wf, cand, &message);
+				gcftx_analyze_decoded_message(&rx_candidate.decoded, FTX.Local_CALLSIGN, &rx_candidate.view);
 
 				if (rx_candidate.view.is_cq)
-					rx_candidate.reject_reason = gcft8_cq_reject_reason(&rx_candidate);
-				rx_candidate.display_class = gcft8_display_class_for_candidate(&rx_candidate);
-				gcft8_display_rx_candidate(&rx_candidate);
+					rx_candidate.reject_reason = gcftx_cq_reject_reason(&rx_candidate);
+				rx_candidate.display_class = gcftx_display_class_for_candidate(&rx_candidate);
+				gcftx_display_rx_candidate(&rx_candidate);
 
 				if (rx_candidate.view.is_for_local)
 				{
-					if (!ft8_listen_only_filter_active())
+					if (!ftx_listen_only_filter_active())
 					{
 						bool tx_needed = false;
-						pthread_mutex_lock(&FT8.TRX_status_lock);
-						if (gcft8_qso_update_from_direct_candidate(&rx_candidate, rx_now, &tx_needed))
+						pthread_mutex_lock(&FTX.TRX_status_lock);
+						if (gcftx_qso_update_from_direct_candidate(&rx_candidate, rx_now, &tx_needed))
 						{
 							if (tx_needed)
 								rx_requested_tx = true;
 						}
-						pthread_mutex_unlock(&FT8.TRX_status_lock);
+						pthread_mutex_unlock(&FTX.TRX_status_lock);
 					}
 				}
-				else if (rx_candidate.view.is_cq && (rx_candidate.reject_reason == GCFT8_REJECT_NONE) && (cq_candidate_count < kMax_candidates))
+				else if (rx_candidate.view.is_cq && (rx_candidate.reject_reason == GCFTX_REJECT_NONE) && (cq_candidate_count < kMax_candidates))
 				{
 					cq_candidates[cq_candidate_count++] = rx_candidate;
 				}
 			}
 
-			if((cq_candidate_count>0) && !rx_requested_tx && !ft8_listen_only_filter_active() && !gcft8_shutdown_requested()){
+			if((cq_candidate_count>0) && !rx_requested_tx && !ftx_listen_only_filter_active() && !gcftx_shutdown_requested()){
 				int index_from_ope = 0;
 				float dist = 0;
 				int actusnr;
 				
-				switch (FT8.filter_on_cq)
+				switch (FTX.filter_on_cq)
 				{
 				
-				case FT8_FILTER_RANDOM_CQ:
-					index_from_ope = ft8_random_index(cq_candidate_count);
+				case FTX_FILTER_RANDOM_CQ:
+					index_from_ope = ftx_random_index(cq_candidate_count);
 					break;
 					
-				case FT8_FILTER_BEST_DECODE_SCORE:
+				case FTX_FILTER_BEST_DECODE_SCORE:
 					index_from_ope = 0;
 					break;				
 				
-				case FT8_FILTER_MAX_DISTANCE:
+				case FTX_FILTER_MAX_DISTANCE:
 					dist = 0;
 					for(int i = 0; i<cq_candidate_count;i++){
 						if(strlen(cq_candidates[i].view.locator) == 4){
 							float latlonlocal[2];
 							latLonForGrid(cq_candidates[i].view.locator,latlonlocal);
-							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
+							float new_dist = latLonDist(latlonlocal, FTX.Local_latlon);
 							#if DEBUG
 							printf("%s lat:%f lon:%f dist:%f\n",cq_candidates[i].view.from_call,latlonlocal[0],latlonlocal[1],new_dist);
 							#endif
@@ -2660,13 +2660,13 @@ static void RX_FT8()
 					}				
 					break;
 					
-				case FT8_FILTER_MIN_DISTANCE:
+				case FTX_FILTER_MIN_DISTANCE:
 					dist = 6372;
 					for(int i = 0; i<cq_candidate_count;i++){
 						if(strlen(cq_candidates[i].view.locator) == 4){
 							float latlonlocal[2];
 							latLonForGrid(cq_candidates[i].view.locator,latlonlocal);
-							float new_dist = latLonDist(latlonlocal, FT8.Local_latlon);
+							float new_dist = latLonDist(latlonlocal, FTX.Local_latlon);
 							#if DEBUG
 							printf("%s lat:%f lon:%f dist:%f\n",cq_candidates[i].view.from_call,latlonlocal[0],latlonlocal[1],new_dist);
 							#endif
@@ -2675,14 +2675,14 @@ static void RX_FT8()
 					}				
 					break;
 
-				case FT8_FILTER_MAX_SNR:
+				case FTX_FILTER_MAX_SNR:
 					actusnr = -100;
 					for(int i = 0; i<cq_candidate_count;i++){
 						if(cq_candidates[i].snr > actusnr){index_from_ope=i;actusnr=cq_candidates[i].snr;}
 					}				
 					break;
 
-				case FT8_FILTER_MIN_SNR:
+				case FTX_FILTER_MIN_SNR:
 					actusnr = 100;
 					for(int i = 0; i<cq_candidate_count;i++){
 						if(cq_candidates[i].snr < actusnr){index_from_ope=i;actusnr=cq_candidates[i].snr;}
@@ -2691,14 +2691,14 @@ static void RX_FT8()
 				
 								
 				default:
-					index_from_ope = ft8_random_index(cq_candidate_count);
+					index_from_ope = ftx_random_index(cq_candidate_count);
 					break;
 
 				}
 				
-				pthread_mutex_lock(&FT8.TRX_status_lock);
-				int selected_session = gcft8_qso_update_from_cq_candidate(&cq_candidates[index_from_ope], rx_now);
-				pthread_mutex_unlock(&FT8.TRX_status_lock);
+				pthread_mutex_lock(&FTX.TRX_status_lock);
+				int selected_session = gcftx_qso_update_from_cq_candidate(&cq_candidates[index_from_ope], rx_now);
+				pthread_mutex_unlock(&FTX.TRX_status_lock);
 				
 				if (selected_session >= 0)
 				{
@@ -2712,17 +2712,17 @@ static void RX_FT8()
 				
 			}
 
-			if (!ft8_listen_only_filter_active() && !gcft8_shutdown_requested())
+			if (!ftx_listen_only_filter_active() && !gcftx_shutdown_requested())
 			{
-				pthread_mutex_lock(&FT8.TRX_status_lock);
-				int selected_session = gcft8_qso_select_tx_session();
+				pthread_mutex_lock(&FTX.TRX_status_lock);
+				int selected_session = gcftx_qso_select_tx_session();
 				if (selected_session >= 0)
 					should_unlock_tx = true;
-				pthread_mutex_unlock(&FT8.TRX_status_lock);
+				pthread_mutex_unlock(&FTX.TRX_status_lock);
 			}
 
 
-			gcft8_flush_pending_logs();
+			gcftx_flush_pending_logs();
 
 			if (should_unlock_tx)
 				unlock_TX_thread();
@@ -2738,34 +2738,34 @@ static void RX_FT8()
 		}
 		else{
 			// printf( "Lock RX thread\n");
-			pthread_mutex_lock(&FT8.TRX_status_lock);
-			while (!gcft8_shutdown_requested() && FT8.TRX_status != GCFT8_TRX_RX)
-				pthread_cond_wait(&FT8.RX_status_cond, &FT8.TRX_status_lock);
-			pthread_mutex_unlock(&FT8.TRX_status_lock);		
+			pthread_mutex_lock(&FTX.TRX_status_lock);
+			while (!gcftx_shutdown_requested() && FTX.TRX_status != GCFTX_TRX_RX)
+				pthread_cond_wait(&FTX.RX_status_cond, &FTX.TRX_status_lock);
+			pthread_mutex_unlock(&FTX.TRX_status_lock);
 		}
 		
 	}
 
 }
 
-static void gcft8_qso_session_clear(gcft8_qso_session_t* session)
+static void gcftx_qso_session_clear(gcftx_qso_session_t* session)
 {
 	if (session == NULL)
 		return;
 
 	memset(session, 0, sizeof(*session));
-	session->last_rx_snr = GCFT8_SNR_INVALID;
-	session->report_sent_snr = GCFT8_SNR_INVALID;
+	session->last_rx_snr = GCFTX_SNR_INVALID;
+	session->report_sent_snr = GCFTX_SNR_INVALID;
 	session->next_tx_seq = -1;
 	session->last_tx_seq = -1;
 }
 
-static void gcft8_qso_session_begin(gcft8_qso_session_t* session, const char* callsign, time_t now)
+static void gcftx_qso_session_begin(gcftx_qso_session_t* session, const char* callsign, time_t now)
 {
 	if ((session == NULL) || (callsign == NULL))
 		return;
 
-	gcft8_qso_session_clear(session);
+	gcftx_qso_session_clear(session);
 	session->in_use = true;
 	copy_text(session->callsign, sizeof(session->callsign), callsign);
 	session->started_at = now;
@@ -2773,28 +2773,28 @@ static void gcft8_qso_session_begin(gcft8_qso_session_t* session, const char* ca
 	session->last_progress_at = now;
 }
 
-static void gcft8_qso_sessions_init(void)
+static void gcftx_qso_sessions_init(void)
 {
-	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
-		gcft8_qso_session_clear(&FT8.QSO_sessions[idx]);
+	for (int idx = 0; idx < GCFTX_MAX_QSO_SESSIONS; ++idx)
+		gcftx_qso_session_clear(&FTX.QSO_sessions[idx]);
 }
 
-static bool gcft8_qso_session_expired(const gcft8_qso_session_t* session, time_t now)
+static bool gcftx_qso_session_expired(const gcftx_qso_session_t* session, time_t now)
 {
 	if ((session == NULL) || !session->in_use || session->log_pending)
 		return false;
 
-	return difftime(now, session->last_seen_at) > GCFT8_QSO_SESSION_TTL_SEC;
+	return difftime(now, session->last_seen_at) > GCFTX_QSO_SESSION_TTL_SEC;
 }
 
-static int gcft8_qso_find_session(const char* callsign)
+static int gcftx_qso_find_session(const char* callsign)
 {
 	if ((callsign == NULL) || (callsign[0] == '\0'))
 		return -1;
 
-	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	for (int idx = 0; idx < GCFTX_MAX_QSO_SESSIONS; ++idx)
 	{
-		const gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
+		const gcftx_qso_session_t* session = &FTX.QSO_sessions[idx];
 		if (session->in_use && (strcmp(session->callsign, callsign) == 0))
 			return idx;
 	}
@@ -2802,32 +2802,32 @@ static int gcft8_qso_find_session(const char* callsign)
 	return -1;
 }
 
-static bool gcft8_cq_repeat_guard_rejects(const char* callsign)
+static bool gcftx_cq_repeat_guard_rejects(const char* callsign)
 {
-	int idx = gcft8_qso_find_session(callsign);
-	const gcft8_qso_session_t* session;
+	int idx = gcftx_qso_find_session(callsign);
+	const gcftx_qso_session_t* session;
 
 	if (idx < 0)
 		return false;
 
-	session = &FT8.QSO_sessions[idx];
-	return !session->logged && !session->log_pending && (session->last_tx_seq == 0) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats);
+	session = &FTX.QSO_sessions[idx];
+	return !session->logged && !session->log_pending && (session->last_tx_seq == 0) && (session->same_tx_repeat_count >= gcftx_max_same_tx_repeats);
 }
 
-static int gcft8_qso_allocate_session(time_t now)
+static int gcftx_qso_allocate_session(time_t now)
 {
 	int expired_idx = -1;
 	int logged_oldest_idx = -1;
 	time_t logged_oldest_time = now;
 
-	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	for (int idx = 0; idx < GCFTX_MAX_QSO_SESSIONS; ++idx)
 	{
-		gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
+		gcftx_qso_session_t* session = &FTX.QSO_sessions[idx];
 
 		if (!session->in_use)
 			return idx;
 
-		if ((expired_idx < 0) && gcft8_qso_session_expired(session, now))
+		if ((expired_idx < 0) && gcftx_qso_session_expired(session, now))
 			expired_idx = idx;
 
 		if (session->logged && !session->log_pending && ((logged_oldest_idx < 0) || (session->last_seen_at < logged_oldest_time)))
@@ -2843,24 +2843,24 @@ static int gcft8_qso_allocate_session(time_t now)
 	return logged_oldest_idx;
 }
 
-static int gcft8_qso_find_or_create_session(const char* callsign, time_t now)
+static int gcftx_qso_find_or_create_session(const char* callsign, time_t now)
 {
-	int idx = gcft8_qso_find_session(callsign);
-	gcft8_qso_session_t* session;
+	int idx = gcftx_qso_find_session(callsign);
+	gcftx_qso_session_t* session;
 
 	if (idx >= 0)
 		return idx;
 
-	idx = gcft8_qso_allocate_session(now);
+	idx = gcftx_qso_allocate_session(now);
 	if (idx < 0)
 		return -1;
 
-	session = &FT8.QSO_sessions[idx];
-	gcft8_qso_session_begin(session, callsign, now);
+	session = &FTX.QSO_sessions[idx];
+	gcftx_qso_session_begin(session, callsign, now);
 	return idx;
 }
 
-static void gcft8_qso_update_locator(gcft8_qso_session_t* session, const char* locator)
+static void gcftx_qso_update_locator(gcftx_qso_session_t* session, const char* locator)
 {
 	if ((session == NULL) || (locator == NULL) || (strlen(locator) != 4))
 		return;
@@ -2868,10 +2868,10 @@ static void gcft8_qso_update_locator(gcft8_qso_session_t* session, const char* l
 	copy_text(session->locator, sizeof(session->locator), locator);
 }
 
-static gcft8_qso_action_t gcft8_qso_message_to_action(const gcft8_decoded_message_view_t* view)
+static gcftx_qso_action_t gcftx_qso_message_to_action(const gcftx_decoded_message_view_t* view)
 {
-	gcft8_qso_action_t action;
-	action.type = GCFT8_QSO_ACTION_NONE;
+	gcftx_qso_action_t action;
+	action.type = GCFTX_QSO_ACTION_NONE;
 	action.tx_seq = -1;
 
 	if ((view == NULL) || !view->is_for_local)
@@ -2879,41 +2879,41 @@ static gcft8_qso_action_t gcft8_qso_message_to_action(const gcft8_decoded_messag
 
 	if (strcmp(view->message, "RRR") == 0)
 	{
-		action.type = GCFT8_QSO_ACTION_TX_AND_LOG_AFTER;
+		action.type = GCFTX_QSO_ACTION_TX_AND_LOG_AFTER;
 		action.tx_seq = 4;
 		return action;
 	}
 
 	if (strcmp(view->message, "RR73") == 0)
 	{
-		action.type = GCFT8_QSO_ACTION_TX_AND_LOG_AFTER;
+		action.type = GCFTX_QSO_ACTION_TX_AND_LOG_AFTER;
 		action.tx_seq = 4;
 		return action;
 	}
 
 	if (strcmp(view->message, "73") == 0)
 	{
-		action.type = GCFT8_QSO_ACTION_LOG_NOW;
+		action.type = GCFTX_QSO_ACTION_LOG_NOW;
 		return action;
 	}
 
-	if ((view->message[0] == 'R') && gcft8_is_signed_number_text(view->message + 1))
+	if ((view->message[0] == 'R') && gcftx_is_signed_number_text(view->message + 1))
 	{
-		action.type = GCFT8_QSO_ACTION_TX;
+		action.type = GCFTX_QSO_ACTION_TX;
 		action.tx_seq = 3;
 		return action;
 	}
 
-	if (gcft8_is_signed_number_text(view->message))
+	if (gcftx_is_signed_number_text(view->message))
 	{
-		action.type = GCFT8_QSO_ACTION_TX;
+		action.type = GCFTX_QSO_ACTION_TX;
 		action.tx_seq = 2;
 		return action;
 	}
 
 	if (view->has_locator)
 	{
-		action.type = GCFT8_QSO_ACTION_TX;
+		action.type = GCFTX_QSO_ACTION_TX;
 		action.tx_seq = 1;
 		return action;
 	}
@@ -2921,16 +2921,16 @@ static gcft8_qso_action_t gcft8_qso_message_to_action(const gcft8_decoded_messag
 	return action;
 }
 
-static bool gcft8_qso_action_requires_existing_session(gcft8_qso_action_t action)
+static bool gcftx_qso_action_requires_existing_session(gcftx_qso_action_t action)
 {
-	return (action.type == GCFT8_QSO_ACTION_LOG_NOW) || (action.type == GCFT8_QSO_ACTION_TX_AND_LOG_AFTER);
+	return (action.type == GCFTX_QSO_ACTION_LOG_NOW) || (action.type == GCFTX_QSO_ACTION_TX_AND_LOG_AFTER);
 }
 
-static bool gcft8_qso_update_from_direct_candidate(const gcft8_rx_candidate_t* candidate, time_t now, bool* tx_needed)
+static bool gcftx_qso_update_from_direct_candidate(const gcftx_rx_candidate_t* candidate, time_t now, bool* tx_needed)
 {
-	gcft8_qso_action_t action;
+	gcftx_qso_action_t action;
 	int idx;
-	gcft8_qso_session_t* session;
+	gcftx_qso_session_t* session;
 
 	if (tx_needed != NULL)
 		*tx_needed = false;
@@ -2938,25 +2938,25 @@ static bool gcft8_qso_update_from_direct_candidate(const gcft8_rx_candidate_t* c
 	if ((candidate == NULL) || !candidate->view.is_for_local || (candidate->view.from_call[0] == '\0'))
 		return false;
 
-	action = gcft8_qso_message_to_action(&candidate->view);
-	if (action.type == GCFT8_QSO_ACTION_NONE)
+	action = gcftx_qso_message_to_action(&candidate->view);
+	if (action.type == GCFTX_QSO_ACTION_NONE)
 		return false;
 
-	if (gcft8_qso_action_requires_existing_session(action))
-		idx = gcft8_qso_find_session(candidate->view.from_call);
+	if (gcftx_qso_action_requires_existing_session(action))
+		idx = gcftx_qso_find_session(candidate->view.from_call);
 	else
-		idx = gcft8_qso_find_or_create_session(candidate->view.from_call, now);
+		idx = gcftx_qso_find_or_create_session(candidate->view.from_call, now);
 	if (idx < 0)
 		return false;
 
-	session = &FT8.QSO_sessions[idx];
+	session = &FTX.QSO_sessions[idx];
 	session->last_seen_at = now;
 	session->last_rx_snr = candidate->snr;
 	session->frequency_hz = candidate->frequency_hz;
 	if (candidate->view.has_locator && (session->locator[0] == '\0'))
-		gcft8_qso_update_locator(session, candidate->view.locator);
+		gcftx_qso_update_locator(session, candidate->view.locator);
 
-	if (action.type == GCFT8_QSO_ACTION_LOG_NOW)
+	if (action.type == GCFTX_QSO_ACTION_LOG_NOW)
 	{
 		session->next_tx_seq = -1;
 		session->ended_at = now;
@@ -2968,54 +2968,54 @@ static bool gcft8_qso_update_from_direct_candidate(const gcft8_rx_candidate_t* c
 
 	if (session->next_tx_seq != action.tx_seq)
 		session->last_progress_at = now;
-	if ((action.tx_seq >= 0) && (session->last_tx_seq == action.tx_seq) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats))
+	if ((action.tx_seq >= 0) && (session->last_tx_seq == action.tx_seq) && (session->same_tx_repeat_count >= gcftx_max_same_tx_repeats))
 	{
 		session->next_tx_seq = -1;
 		session->log_after_tx_73 = false;
 		return true;
 	}
 	session->next_tx_seq = action.tx_seq;
-	session->log_after_tx_73 = action.type == GCFT8_QSO_ACTION_TX_AND_LOG_AFTER;
+	session->log_after_tx_73 = action.type == GCFTX_QSO_ACTION_TX_AND_LOG_AFTER;
 	if (tx_needed != NULL)
 		*tx_needed = action.tx_seq >= 0;
 	return true;
 }
 
-static int gcft8_qso_update_from_cq_candidate(const gcft8_rx_candidate_t* candidate, time_t now)
+static int gcftx_qso_update_from_cq_candidate(const gcftx_rx_candidate_t* candidate, time_t now)
 {
 	int idx;
-	gcft8_qso_session_t* session;
+	gcftx_qso_session_t* session;
 
 	if ((candidate == NULL) || !candidate->view.is_cq || (candidate->view.from_call[0] == '\0'))
 		return -1;
 
-	idx = gcft8_qso_find_session(candidate->view.from_call);
+	idx = gcftx_qso_find_session(candidate->view.from_call);
 	if (idx >= 0)
 	{
-		session = &FT8.QSO_sessions[idx];
+		session = &FTX.QSO_sessions[idx];
 		if (session->logged || session->log_pending)
 			return -1;
 		session->started_at = now;
 		session->ended_at = 0;
-		session->report_sent_snr = GCFT8_SNR_INVALID;
+		session->report_sent_snr = GCFTX_SNR_INVALID;
 		session->log_after_tx_73 = false;
 	}
 	else
 	{
-		idx = gcft8_qso_allocate_session(now);
+		idx = gcftx_qso_allocate_session(now);
 		if (idx < 0)
 			return -1;
-		session = &FT8.QSO_sessions[idx];
-		gcft8_qso_session_begin(session, candidate->view.from_call, now);
+		session = &FTX.QSO_sessions[idx];
+		gcftx_qso_session_begin(session, candidate->view.from_call, now);
 	}
 
 	session->last_seen_at = now;
 	session->last_rx_snr = candidate->snr;
 	session->frequency_hz = candidate->frequency_hz;
-	gcft8_qso_update_locator(session, candidate->view.locator);
+	gcftx_qso_update_locator(session, candidate->view.locator);
 	session->last_progress_at = now;
 
-	if ((session->last_tx_seq == 0) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats))
+	if ((session->last_tx_seq == 0) && (session->same_tx_repeat_count >= gcftx_max_same_tx_repeats))
 	{
 		session->next_tx_seq = -1;
 		return -1;
@@ -3025,7 +3025,7 @@ static int gcft8_qso_update_from_cq_candidate(const gcft8_rx_candidate_t* candid
 	return idx;
 }
 
-static int gcft8_qso_tx_priority(const gcft8_qso_session_t* session)
+static int gcftx_qso_tx_priority(const gcftx_qso_session_t* session)
 {
 	int score;
 
@@ -3033,27 +3033,27 @@ static int gcft8_qso_tx_priority(const gcft8_qso_session_t* session)
 		return -1000000;
 
 	score = session->next_tx_seq * 100;
-	if ((session->next_tx_seq == session->last_tx_seq) && (session->same_tx_repeat_count >= gcft8_max_same_tx_repeats))
+	if ((session->next_tx_seq == session->last_tx_seq) && (session->same_tx_repeat_count >= gcftx_max_same_tx_repeats))
 		score -= 1000;
 	return score;
 }
 
-static int gcft8_qso_select_tx_session(void)
+static int gcftx_qso_select_tx_session(void)
 {
 	int best_idx = -1;
 	int best_score = -1000000;
 
-	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	for (int idx = 0; idx < GCFTX_MAX_QSO_SESSIONS; ++idx)
 	{
-		const gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
-		int score = gcft8_qso_tx_priority(session);
+		const gcftx_qso_session_t* session = &FTX.QSO_sessions[idx];
+		int score = gcftx_qso_tx_priority(session);
 
 		if (score <= -1000000)
 			continue;
 
 		if ((best_idx < 0) || (score > best_score) ||
-			((score == best_score) && (session->last_tx_at < FT8.QSO_sessions[best_idx].last_tx_at)) ||
-			((score == best_score) && (session->last_tx_at == FT8.QSO_sessions[best_idx].last_tx_at) && (session->last_progress_at < FT8.QSO_sessions[best_idx].last_progress_at)))
+			((score == best_score) && (session->last_tx_at < FTX.QSO_sessions[best_idx].last_tx_at)) ||
+			((score == best_score) && (session->last_tx_at == FTX.QSO_sessions[best_idx].last_tx_at) && (session->last_progress_at < FTX.QSO_sessions[best_idx].last_progress_at)))
 		{
 			best_idx = idx;
 			best_score = score;
@@ -3063,7 +3063,7 @@ static int gcft8_qso_select_tx_session(void)
 	return best_idx;
 }
 
-static bool gcft8_qso_build_tx_message(const gcft8_qso_session_t* session, char* dst, size_t dst_size)
+static bool gcftx_qso_build_tx_message(const gcftx_qso_session_t* session, char* dst, size_t dst_size)
 {
 	int snr;
 	int written;
@@ -3071,23 +3071,23 @@ static bool gcft8_qso_build_tx_message(const gcft8_qso_session_t* session, char*
 	if ((session == NULL) || !session->in_use || (dst == NULL) || (dst_size == 0) || (session->callsign[0] == '\0'))
 		return false;
 
-	snr = session->last_rx_snr == GCFT8_SNR_INVALID ? 0 : session->last_rx_snr;
+	snr = session->last_rx_snr == GCFTX_SNR_INVALID ? 0 : session->last_rx_snr;
 	switch (session->next_tx_seq)
 	{
 	case 0:
-		written = snprintf(dst, dst_size, "%s %s %s", session->callsign, FT8.Local_CALLSIGN, FT8.Local_LOCATOR);
+		written = snprintf(dst, dst_size, "%s %s %s", session->callsign, FTX.Local_CALLSIGN, FTX.Local_LOCATOR);
 		break;
 	case 1:
-		written = snprintf(dst, dst_size, "%s %s %+03d", session->callsign, FT8.Local_CALLSIGN, snr);
+		written = snprintf(dst, dst_size, "%s %s %+03d", session->callsign, FTX.Local_CALLSIGN, snr);
 		break;
 	case 2:
-		written = snprintf(dst, dst_size, "%s %s R%+03d", session->callsign, FT8.Local_CALLSIGN, snr);
+		written = snprintf(dst, dst_size, "%s %s R%+03d", session->callsign, FTX.Local_CALLSIGN, snr);
 		break;
 	case 3:
-		written = snprintf(dst, dst_size, "%s %s RRR", session->callsign, FT8.Local_CALLSIGN);
+		written = snprintf(dst, dst_size, "%s %s RRR", session->callsign, FTX.Local_CALLSIGN);
 		break;
 	case 4:
-		written = snprintf(dst, dst_size, "%s %s 73", session->callsign, FT8.Local_CALLSIGN);
+		written = snprintf(dst, dst_size, "%s %s 73", session->callsign, FTX.Local_CALLSIGN);
 		break;
 	default:
 		dst[0] = '\0';
@@ -3103,14 +3103,14 @@ static bool gcft8_qso_build_tx_message(const gcft8_qso_session_t* session, char*
 	return true;
 }
 
-static void gcft8_qso_mark_tx_sent(int session_idx, int sent_seq, bool tx_ok, time_t now)
+static void gcftx_qso_mark_tx_sent(int session_idx, int sent_seq, bool tx_ok, time_t now)
 {
-	gcft8_qso_session_t* session;
+	gcftx_qso_session_t* session;
 
-	if (!tx_ok || (session_idx < 0) || (session_idx >= GCFT8_MAX_QSO_SESSIONS) || !FT8.QSO_sessions[session_idx].in_use)
+	if (!tx_ok || (session_idx < 0) || (session_idx >= GCFTX_MAX_QSO_SESSIONS) || !FTX.QSO_sessions[session_idx].in_use)
 		return;
 
-	session = &FT8.QSO_sessions[session_idx];
+	session = &FTX.QSO_sessions[session_idx];
 	session->last_tx_at = now;
 	if (sent_seq == session->last_tx_seq)
 		++session->same_tx_repeat_count;
@@ -3135,16 +3135,16 @@ static void gcft8_qso_mark_tx_sent(int session_idx, int sent_seq, bool tx_ok, ti
 		session->next_tx_seq = -1;
 }
 
-static void gcft8_qso_prune_expired(time_t now)
+static void gcftx_qso_prune_expired(time_t now)
 {
-	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	for (int idx = 0; idx < GCFTX_MAX_QSO_SESSIONS; ++idx)
 	{
-		if (gcft8_qso_session_expired(&FT8.QSO_sessions[idx], now))
-			gcft8_qso_session_clear(&FT8.QSO_sessions[idx]);
+		if (gcftx_qso_session_expired(&FTX.QSO_sessions[idx], now))
+			gcftx_qso_session_clear(&FTX.QSO_sessions[idx]);
 	}
 }
 
-static bool gcft8_append_text(char* dst, size_t dst_size, size_t* offset, const char* text)
+static bool gcftx_append_text(char* dst, size_t dst_size, size_t* offset, const char* text)
 {
 	size_t len;
 
@@ -3160,7 +3160,7 @@ static bool gcft8_append_text(char* dst, size_t dst_size, size_t* offset, const 
 	return true;
 }
 
-static bool gcft8_append_adif_field(char* dst, size_t dst_size, size_t* offset, const char* name, const char* value)
+static bool gcftx_append_adif_field(char* dst, size_t dst_size, size_t* offset, const char* name, const char* value)
 {
 	char field_header[64];
 	int written;
@@ -3172,19 +3172,19 @@ static bool gcft8_append_adif_field(char* dst, size_t dst_size, size_t* offset, 
 	if ((written < 0) || ((size_t)written >= sizeof(field_header)))
 		return false;
 
-	return gcft8_append_text(dst, dst_size, offset, field_header) &&
-		gcft8_append_text(dst, dst_size, offset, value) &&
-		gcft8_append_text(dst, dst_size, offset, " ");
+	return gcftx_append_text(dst, dst_size, offset, field_header) &&
+		gcftx_append_text(dst, dst_size, offset, value) &&
+		gcftx_append_text(dst, dst_size, offset, " ");
 }
 
-static void gcft8_format_adif_datetime(time_t t, char date[9], char time_on[7])
+static void gcftx_format_adif_datetime(time_t t, char date[9], char time_on[7])
 {
 	struct tm tm = *gmtime(&t);
 	strftime(date, 9, "%Y%m%d", &tm);
 	strftime(time_on, 7, "%H%M%S", &tm);
 }
 
-static bool gcft8_build_adif_qso_record(char* dst, size_t dst_size, const char* callsign, const char* locator, int rst_sent, double rf_frequency_hz, time_t started_at, time_t ended_at)
+static bool gcftx_build_adif_qso_record(char* dst, size_t dst_size, const char* callsign, const char* locator, int rst_sent, double rf_frequency_hz, time_t started_at, time_t ended_at)
 {
 	size_t offset = 0;
 	char qso_date[9];
@@ -3200,51 +3200,51 @@ static bool gcft8_build_adif_qso_record(char* dst, size_t dst_size, const char* 
 		ended_at = started_at;
 
 	dst[0] = '\0';
-	gcft8_format_adif_datetime(started_at, qso_date, time_on);
-	gcft8_format_adif_datetime(ended_at, qso_date_off, time_off);
+	gcftx_format_adif_datetime(started_at, qso_date, time_on);
+	gcftx_format_adif_datetime(ended_at, qso_date_off, time_off);
 	snprintf(freq_mhz, sizeof(freq_mhz), "%.6f", rf_frequency_hz / 1000000.0);
 	rst_sent_text[0] = '\0';
-	if (rst_sent != GCFT8_SNR_INVALID)
+	if (rst_sent != GCFTX_SNR_INVALID)
 		snprintf(rst_sent_text, sizeof(rst_sent_text), "%+03d", rst_sent);
 
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "CALL", callsign))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "CALL", callsign))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "MODE", gcft8_adif_mode_name()))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "MODE", gcftx_adif_mode_name()))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "QSO_DATE", qso_date))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "QSO_DATE", qso_date))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "TIME_ON", time_on))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "TIME_ON", time_on))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "QSO_DATE_OFF", qso_date_off))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "QSO_DATE_OFF", qso_date_off))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "TIME_OFF", time_off))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "TIME_OFF", time_off))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "FREQ", freq_mhz))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "FREQ", freq_mhz))
 		return false;
-	if (gcft8_filter_has_band && !gcft8_append_adif_field(dst, dst_size, &offset, "BAND", gcft8_filter_band))
+	if (gcftx_filter_has_band && !gcftx_append_adif_field(dst, dst_size, &offset, "BAND", gcftx_filter_band))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "GRIDSQUARE", locator))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "GRIDSQUARE", locator))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "RST_SENT", rst_sent_text))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "RST_SENT", rst_sent_text))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "STATION_CALLSIGN", FT8.Local_CALLSIGN))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "STATION_CALLSIGN", FTX.Local_CALLSIGN))
 		return false;
-	if (!gcft8_append_adif_field(dst, dst_size, &offset, "MY_GRIDSQUARE", FT8.Local_LOCATOR))
+	if (!gcftx_append_adif_field(dst, dst_size, &offset, "MY_GRIDSQUARE", FTX.Local_LOCATOR))
 		return false;
 
-	return gcft8_append_text(dst, dst_size, &offset, "<EOR>\n");
+	return gcftx_append_text(dst, dst_size, &offset, "<EOR>\n");
 }
 
-static bool gcft8_build_adif_qso_record_from_session(const gcft8_qso_session_t* session, char* dst, size_t dst_size)
+static bool gcftx_build_adif_qso_record_from_session(const gcftx_qso_session_t* session, char* dst, size_t dst_size)
 {
 	if ((session == NULL) || !session->in_use || (session->callsign[0] == '\0'))
 		return false;
 
-	return gcft8_build_adif_qso_record(dst, dst_size, session->callsign, session->locator, session->report_sent_snr,
-		(double)FT8.Tranceiver_VFOA_Freq + (double)session->frequency_hz, session->started_at, session->ended_at);
+	return gcftx_build_adif_qso_record(dst, dst_size, session->callsign, session->locator, session->report_sent_snr,
+		(double)FTX.Tranceiver_VFOA_Freq + (double)session->frequency_hz, session->started_at, session->ended_at);
 }
 
-static bool gcft8_qso_take_pending_log(gcft8_pending_log_t* pending_log)
+static bool gcftx_qso_take_pending_log(gcftx_pending_log_t* pending_log)
 {
 	if (pending_log == NULL)
 		return false;
@@ -3253,13 +3253,13 @@ static bool gcft8_qso_take_pending_log(gcft8_pending_log_t* pending_log)
 	pending_log->callsign[0] = '\0';
 	pending_log->session_index = -1;
 
-	for (int idx = 0; idx < GCFT8_MAX_QSO_SESSIONS; ++idx)
+	for (int idx = 0; idx < GCFTX_MAX_QSO_SESSIONS; ++idx)
 	{
-		gcft8_qso_session_t* session = &FT8.QSO_sessions[idx];
+		gcftx_qso_session_t* session = &FTX.QSO_sessions[idx];
 		if (!session->in_use || !session->log_pending || session->log_in_progress)
 			continue;
 
-		if (gcft8_build_adif_qso_record_from_session(session, pending_log->adif_record, sizeof(pending_log->adif_record)))
+		if (gcftx_build_adif_qso_record_from_session(session, pending_log->adif_record, sizeof(pending_log->adif_record)))
 		{
 			copy_text(pending_log->callsign, sizeof(pending_log->callsign), session->callsign);
 			pending_log->session_index = idx;
@@ -3271,15 +3271,15 @@ static bool gcft8_qso_take_pending_log(gcft8_pending_log_t* pending_log)
 	return false;
 }
 
-static void gcft8_qso_finish_pending_log(const gcft8_pending_log_t* pending_log, bool success)
+static void gcftx_qso_finish_pending_log(const gcftx_pending_log_t* pending_log, bool success)
 {
-	gcft8_qso_session_t* session;
+	gcftx_qso_session_t* session;
 
-	if ((pending_log == NULL) || (pending_log->session_index < 0) || (pending_log->session_index >= GCFT8_MAX_QSO_SESSIONS))
+	if ((pending_log == NULL) || (pending_log->session_index < 0) || (pending_log->session_index >= GCFTX_MAX_QSO_SESSIONS))
 		return;
 
-	pthread_mutex_lock(&FT8.TRX_status_lock);
-	session = &FT8.QSO_sessions[pending_log->session_index];
+	pthread_mutex_lock(&FTX.TRX_status_lock);
+	session = &FTX.QSO_sessions[pending_log->session_index];
 	if (session->in_use && session->log_in_progress && (strcmp(session->callsign, pending_log->callsign) == 0))
 	{
 		if (success)
@@ -3289,10 +3289,10 @@ static void gcft8_qso_finish_pending_log(const gcft8_pending_log_t* pending_log,
 		}
 		session->log_in_progress = false;
 	}
-	pthread_mutex_unlock(&FT8.TRX_status_lock);
+	pthread_mutex_unlock(&FTX.TRX_status_lock);
 }
 
-static bool gcft8_write_adif_header(FILE* fptr)
+static bool gcftx_write_adif_header(FILE* fptr)
 {
 	char qso_date[9];
 	char time_on[7];
@@ -3301,17 +3301,17 @@ static bool gcft8_write_adif_header(FILE* fptr)
 	if (fptr == NULL)
 		return false;
 
-	gcft8_format_adif_datetime(time(NULL), qso_date, time_on);
+	gcftx_format_adif_datetime(time(NULL), qso_date, time_on);
 	snprintf(created_timestamp, sizeof(created_timestamp), "%s %s", qso_date, time_on);
 
-	fprintf(fptr, "Generated by gcFT8\n");
-	fprintf(fptr, "<ADIF_VER:5>3.1.7 <PROGRAMID:5>gcFT8 <CREATED_TIMESTAMP:15>%s <EOH>\n", created_timestamp);
+	fprintf(fptr, "Generated by gcFTx\n");
+	fprintf(fptr, "<ADIF_VER:5>3.1.7 <PROGRAMID:5>gcFTx <CREATED_TIMESTAMP:15>%s <EOH>\n", created_timestamp);
 	return true;
 }
 
-static void gcft8_ensure_adif_log_file(void)
+static void gcftx_ensure_adif_log_file(void)
 {
-	FILE* fptr = fopen(FT8.log_file_name, "rb");
+	FILE* fptr = fopen(FTX.log_file_name, "rb");
 	long size = 0;
 
 	if (fptr != NULL)
@@ -3323,14 +3323,14 @@ static void gcft8_ensure_adif_log_file(void)
 
 	if ((fptr == NULL) || (size == 0))
 	{
-		fptr = fopen(FT8.log_file_name, "ab");
+		fptr = fopen(FTX.log_file_name, "ab");
 		if (fptr == NULL)
 		{
 			printf("Error with ADIF log file!\n");
 			exit(1);
 		}
 
-		gcft8_write_adif_header(fptr);
+		gcftx_write_adif_header(fptr);
 		fclose(fptr);
 	}
 }
@@ -3343,8 +3343,8 @@ static bool log_adif_qso(const char* adif_record)
 	if ((adif_record == NULL) || (adif_record[0] == '\0'))
 		return false;
 
-	gcft8_ensure_adif_log_file();
-	fptr = fopen(FT8.log_file_name,"ab");
+	gcftx_ensure_adif_log_file();
+	fptr = fopen(FTX.log_file_name,"ab");
 	if(fptr == NULL)
 	{
 		printf("Error with ADIF log file!\n");
@@ -3356,17 +3356,17 @@ static bool log_adif_qso(const char* adif_record)
 		write_ok = false;
 	if (!write_ok)
 	{
-		fprintf(stderr, "Error writing ADIF log file %s\n", FT8.log_file_name);
+		fprintf(stderr, "Error writing ADIF log file %s\n", FTX.log_file_name);
 		return false;
 	}
 
 	clear_status_line();
-	printf("\033[1;32mLogged QSO to %s: %s\033[0m", FT8.log_file_name, adif_record);
-	if(FT8.beep_on_log){putchar('\07');putchar('\a');}
+	printf("\033[1;32mLogged QSO to %s: %s\033[0m", FTX.log_file_name, adif_record);
+	if(FTX.beep_on_log){putchar('\07');putchar('\a');}
 	return true;
 }
 
-static void gcft8_uppercase_text(char* text);
+static void gcftx_uppercase_text(char* text);
 
 static void log_qso_to_filter_table(const char* callsign)
 {
@@ -3376,20 +3376,20 @@ static void log_qso_to_filter_table(const char* callsign)
 		return;
 
 	copy_text(callsign_for_filter, sizeof(callsign_for_filter), callsign);
-	gcft8_uppercase_text(callsign_for_filter);
+	gcftx_uppercase_text(callsign_for_filter);
 	ht_insert(ht_callsigntable_for_filter, callsign_for_filter);
 }
 
-static void gcft8_flush_pending_logs(void)
+static void gcftx_flush_pending_logs(void)
 {
 	for (;;)
 	{
-		gcft8_pending_log_t pending_log;
+		gcftx_pending_log_t pending_log;
 		bool has_log;
 
-		pthread_mutex_lock(&FT8.TRX_status_lock);
-		has_log = gcft8_qso_take_pending_log(&pending_log);
-		pthread_mutex_unlock(&FT8.TRX_status_lock);
+		pthread_mutex_lock(&FTX.TRX_status_lock);
+		has_log = gcftx_qso_take_pending_log(&pending_log);
+		pthread_mutex_unlock(&FTX.TRX_status_lock);
 
 		if (!has_log)
 			break;
@@ -3397,7 +3397,7 @@ static void gcft8_flush_pending_logs(void)
 		bool logged = log_adif_qso(pending_log.adif_record);
 		if (logged)
 			log_qso_to_filter_table(pending_log.callsign);
-		gcft8_qso_finish_pending_log(&pending_log, logged);
+		gcftx_qso_finish_pending_log(&pending_log, logged);
 		if (!logged)
 			break;
 	}
@@ -3409,9 +3409,9 @@ typedef struct
 	char mode[8];
 	char band[8];
 	char freq[24];
-} gcft8_adif_record_t;
+} gcftx_adif_record_t;
 
-static bool gcft8_ascii_equal_ignore_case(const char* a, const char* b)
+static bool gcftx_ascii_equal_ignore_case(const char* a, const char* b)
 {
 	if ((a == NULL) || (b == NULL))
 		return false;
@@ -3427,7 +3427,7 @@ static bool gcft8_ascii_equal_ignore_case(const char* a, const char* b)
 	return (*a == '\0') && (*b == '\0');
 }
 
-static void gcft8_uppercase_text(char* text)
+static void gcftx_uppercase_text(char* text)
 {
 	if (text == NULL)
 		return;
@@ -3436,7 +3436,7 @@ static void gcft8_uppercase_text(char* text)
 		text[idx] = (char)toupper((unsigned char)text[idx]);
 }
 
-static void gcft8_adif_copy_value(char* dst, size_t dst_size, const char* src, size_t src_len)
+static void gcftx_adif_copy_value(char* dst, size_t dst_size, const char* src, size_t src_len)
 {
 	if ((dst == NULL) || (dst_size == 0))
 		return;
@@ -3448,23 +3448,23 @@ static void gcft8_adif_copy_value(char* dst, size_t dst_size, const char* src, s
 	dst[src_len] = '\0';
 }
 
-static bool gcft8_adif_record_matches_filter(const gcft8_adif_record_t* record)
+static bool gcftx_adif_record_matches_filter(const gcftx_adif_record_t* record)
 {
 	if ((record == NULL) || (record->call[0] == '\0') || (record->mode[0] == '\0'))
 		return false;
 
-	if (!gcft8_ascii_equal_ignore_case(record->mode, gcft8_adif_mode_name()))
+	if (!gcftx_ascii_equal_ignore_case(record->mode, gcftx_adif_mode_name()))
 		return false;
 
-	if (gcft8_filter_has_band)
+	if (gcftx_filter_has_band)
 	{
 		if (record->band[0] != '\0')
-			return gcft8_ascii_equal_ignore_case(record->band, gcft8_filter_band);
+			return gcftx_ascii_equal_ignore_case(record->band, gcftx_filter_band);
 
 		if (record->freq[0] != '\0')
 		{
 			double freq_mhz = strtod(record->freq, NULL);
-			return ((int)floor(freq_mhz)) == gcft8_filter_frequency_mhz;
+			return ((int)floor(freq_mhz)) == gcftx_filter_frequency_mhz;
 		}
 
 		return false;
@@ -3473,21 +3473,21 @@ static bool gcft8_adif_record_matches_filter(const gcft8_adif_record_t* record)
 	if (record->freq[0] != '\0')
 	{
 		double freq_mhz = strtod(record->freq, NULL);
-		return ((int)floor(freq_mhz)) == gcft8_filter_frequency_mhz;
+		return ((int)floor(freq_mhz)) == gcftx_filter_frequency_mhz;
 	}
 
 	return false;
 }
 
-static void gcft8_process_adif_record(const gcft8_adif_record_t* record)
+static void gcftx_process_adif_record(const gcftx_adif_record_t* record)
 {
-	char callsign[sizeof(((gcft8_adif_record_t*)0)->call)];
+	char callsign[sizeof(((gcftx_adif_record_t*)0)->call)];
 
-	if (!gcft8_adif_record_matches_filter(record))
+	if (!gcftx_adif_record_matches_filter(record))
 		return;
 
 	copy_text(callsign, sizeof(callsign), record->call);
-	gcft8_uppercase_text(callsign);
+	gcftx_uppercase_text(callsign);
 	ht_insert(ht_callsigntable_for_filter, callsign);
 }
 
@@ -3497,7 +3497,7 @@ static void load_qso_filter_from_adif(void)
 	long file_size;
 	char* content;
 	size_t bytes_read;
-	gcft8_adif_record_t record;
+	gcftx_adif_record_t record;
 
 	ht_callsigntable_for_filter = ht_create_table();
 	if (ht_callsigntable_for_filter == NULL)
@@ -3505,9 +3505,9 @@ static void load_qso_filter_from_adif(void)
 		fprintf(stderr, "Out of memory while creating QSO filter table\n");
 		exit(1);
 	}
-	gcft8_ensure_adif_log_file();
+	gcftx_ensure_adif_log_file();
 
-	fptr = fopen(FT8.log_file_name,"rb");
+	fptr = fopen(FTX.log_file_name,"rb");
 	if(fptr == NULL)
 	{
 		printf("Error with ADIF log file!\n");
@@ -3573,7 +3573,7 @@ static void load_qso_filter_from_adif(void)
 
 		if (strcmp(field_name, "EOR") == 0)
 		{
-			gcft8_process_adif_record(&record);
+			gcftx_process_adif_record(&record);
 			memset(&record, 0, sizeof(record));
 			idx = tag_end + 1;
 			continue;
@@ -3598,19 +3598,19 @@ static void load_qso_filter_from_adif(void)
 		}
 
 		if (strcmp(field_name, "CALL") == 0)
-			gcft8_adif_copy_value(record.call, sizeof(record.call), content + value_start, field_len);
+			gcftx_adif_copy_value(record.call, sizeof(record.call), content + value_start, field_len);
 		else if (strcmp(field_name, "MODE") == 0)
-			gcft8_adif_copy_value(record.mode, sizeof(record.mode), content + value_start, field_len);
+			gcftx_adif_copy_value(record.mode, sizeof(record.mode), content + value_start, field_len);
 		else if (strcmp(field_name, "BAND") == 0)
-			gcft8_adif_copy_value(record.band, sizeof(record.band), content + value_start, field_len);
+			gcftx_adif_copy_value(record.band, sizeof(record.band), content + value_start, field_len);
 		else if (strcmp(field_name, "FREQ") == 0)
-			gcft8_adif_copy_value(record.freq, sizeof(record.freq), content + value_start, field_len);
+			gcftx_adif_copy_value(record.freq, sizeof(record.freq), content + value_start, field_len);
 
 		idx = value_start + field_len;
 	}
 
 	free(content);
-	printf("QSO filter table initialised with %zu entry from %s.\n", ht_callsigntable_for_filter->count, FT8.log_file_name);
+	printf("QSO filter table initialised with %zu entry from %s.\n", ht_callsigntable_for_filter->count, FTX.log_file_name);
 	#if DEBUG
 	print_table(ht_callsigntable_for_filter);
 	#endif
@@ -3618,15 +3618,15 @@ static void load_qso_filter_from_adif(void)
 
 static void TX_FT8()
 {
-	while(!gcft8_shutdown_requested()){
-		pthread_mutex_lock(&FT8.TRX_status_lock);
-		gcft8_trx_state_t stat = FT8.TRX_status;
-		pthread_mutex_unlock(&FT8.TRX_status_lock);
-		if((stat == GCFT8_TRX_TX) && !gcft8_shutdown_requested()){
+	while(!gcftx_shutdown_requested()){
+		pthread_mutex_lock(&FTX.TRX_status_lock);
+		gcftx_trx_state_t stat = FTX.TRX_status;
+		pthread_mutex_unlock(&FTX.TRX_status_lock);
+		if((stat == GCFTX_TRX_TX) && !gcftx_shutdown_requested()){
 			
 			bool tx_completed = false;
-			char tx_message[GCFT8_TX_MESSAGE_TEXT_SIZE];
-			char tx_callsign[sizeof(FT8.QSO_sessions[0].callsign)];
+			char tx_message[GCFTX_TX_MESSAGE_TEXT_SIZE];
+			char tx_callsign[sizeof(FTX.QSO_sessions[0].callsign)];
 			float tx_frequency = 0.0f;
 			int tx_index = -1;
 			int tx_session_index = -1;
@@ -3634,13 +3634,13 @@ static void TX_FT8()
 			tx_message[0] = '\0';
 			tx_callsign[0] = '\0';
 
-			pthread_mutex_lock(&FT8.TRX_status_lock);
-			tx_session_index = gcft8_qso_select_tx_session();
+			pthread_mutex_lock(&FTX.TRX_status_lock);
+			tx_session_index = gcftx_qso_select_tx_session();
 			if (tx_session_index >= 0)
 			{
-				gcft8_qso_session_t* session = &FT8.QSO_sessions[tx_session_index];
+				gcftx_qso_session_t* session = &FTX.QSO_sessions[tx_session_index];
 				tx_index = session->next_tx_seq;
-				if ((tx_index > -1) && gcft8_qso_build_tx_message(session, tx_message, sizeof(tx_message)) && !gcft8_shutdown_requested())
+				if ((tx_index > -1) && gcftx_qso_build_tx_message(session, tx_message, sizeof(tx_message)) && !gcftx_shutdown_requested())
 				{
 					copy_text(tx_callsign, sizeof(tx_callsign), session->callsign);
 					tx_frequency = session->frequency_hz;
@@ -3650,12 +3650,12 @@ static void TX_FT8()
 					tx_index = -1;
 				}
 			}
-			pthread_mutex_unlock(&FT8.TRX_status_lock);
+			pthread_mutex_unlock(&FTX.TRX_status_lock);
 	
-			if((tx_index>-1) && !gcft8_shutdown_requested()){
+			if((tx_index>-1) && !gcftx_shutdown_requested()){
 				
-				const gcft8_mode_config_t* mode_cfg = gcft8_current_mode_config();
-				gcft8_tx_audio_layout_t tx_layout;
+				const gcftx_mode_config_t* mode_cfg = gcftx_current_mode_config();
+				gcftx_tx_audio_layout_t tx_layout;
 				clear_status_line();
 				printf("Resp to \033[1;31m %s \033[0m with seq \033[1;31m %d \033[0m mess \033[1;31m %s \033[0m\n", tx_callsign, tx_index, tx_message);
 			
@@ -3707,14 +3707,14 @@ static void TX_FT8()
 				int16_t* raw_data;
 				bool waveform_ok;
 
-				if (!gcft8_tx_audio_layout_for_mode(mode_cfg, (int)sound.playback_sound_rate, &tx_layout) || !gcft8_tx_context_has_capacity(&gcft8_tx_context, &tx_layout))
+				if (!gcftx_tx_audio_layout_for_mode(mode_cfg, (int)sound.playback_sound_rate, &tx_layout) || !gcftx_tx_context_has_capacity(&gcftx_tx_context, &tx_layout))
 				{
 					fprintf(stderr, "TX buffers were not preallocated for %s at %u Hz\n", mode_cfg->name, sound.playback_sound_rate);
 					exit(1);
 				}
 
-				signal = gcft8_tx_context.signal;
-				raw_data = gcft8_tx_context.pcm;
+				signal = gcftx_tx_context.signal;
+				raw_data = gcftx_tx_context.pcm;
 				
 				for (int i = 0; i < tx_layout.num_total_samples; i++)
 				{
@@ -3722,9 +3722,9 @@ static void TX_FT8()
 				}
 				
 				if (mode_cfg->protocol == FTX_PROTOCOL_FT2)
-					waveform_ok = synth_ft2_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, tx_layout.sample_rate, signal + tx_layout.num_lead_silence, &gcft8_tx_context.gfsk_scratch);
+					waveform_ok = synth_ft2_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, tx_layout.sample_rate, signal + tx_layout.num_lead_silence, &gcftx_tx_context.gfsk_scratch);
 				else
-					waveform_ok = synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, tx_layout.sample_rate, signal + tx_layout.num_lead_silence, &gcft8_tx_context.gfsk_scratch);
+					waveform_ok = synth_gfsk(tones, num_tones, tx_frequency, symbol_bt, symbol_period, tx_layout.sample_rate, signal + tx_layout.num_lead_silence, &gcftx_tx_context.gfsk_scratch);
 				if (!waveform_ok)
 				{
 					fprintf(stderr, "Error while synthesizing TX waveform\n");
@@ -3751,14 +3751,14 @@ static void TX_FT8()
 				
 				if (!wait_for_tx_slot_start(slot_time, mode_cfg->tx_late_grace))
 				{
-					tranceiver_rtx(GCFT8_TRX_RX);
+					tranceiver_rtx(GCFTX_TRX_RX);
 					break;
 				}
 
 				print_slot_separator(mode_cfg, "TX");
 				printDateTime_ms();printf(" start send message\n");
 				
-				tranceiver_rtx(GCFT8_TRX_TX);
+				tranceiver_rtx(GCFTX_TRX_TX);
 								
 				count = 0;
 				do
@@ -3786,9 +3786,9 @@ static void TX_FT8()
 					
 					
 
-				} while (!gcft8_shutdown_requested() && count < tx_layout.num_total_samples);
+				} while (!gcftx_shutdown_requested() && count < tx_layout.num_total_samples);
 				
-				if ((count == tx_layout.num_total_samples) && !gcft8_shutdown_requested())
+				if ((count == tx_layout.num_total_samples) && !gcftx_shutdown_requested())
 				{
 					snd_pcm_drain(sound.playback_handle);
 				}
@@ -3796,19 +3796,19 @@ static void TX_FT8()
 				{
 					snd_pcm_drop(sound.playback_handle);
 				}
-				tx_completed = (count == tx_layout.num_total_samples) && !gcft8_shutdown_requested();
+				tx_completed = (count == tx_layout.num_total_samples) && !gcftx_shutdown_requested();
 				
-				tranceiver_rtx(GCFT8_TRX_RX);
+				tranceiver_rtx(GCFTX_TRX_RX);
 
 				printDateTime_ms();printf(" stop send message\n");
 
 			}
 
-			pthread_mutex_lock(&FT8.TRX_status_lock);
-			gcft8_qso_mark_tx_sent(tx_session_index, tx_index, tx_completed, time(NULL));
-			pthread_mutex_unlock(&FT8.TRX_status_lock);
+			pthread_mutex_lock(&FTX.TRX_status_lock);
+			gcftx_qso_mark_tx_sent(tx_session_index, tx_index, tx_completed, time(NULL));
+			pthread_mutex_unlock(&FTX.TRX_status_lock);
 
-			gcft8_flush_pending_logs();
+			gcftx_flush_pending_logs();
 
 			unlock_RX_thread();
 			
@@ -3817,14 +3817,14 @@ static void TX_FT8()
 			#if DEBUG
 			printf( "Lock TX thread\n");
 			#endif
-			pthread_mutex_lock(&FT8.TRX_status_lock);
-			while (!gcft8_shutdown_requested() && FT8.TRX_status != GCFT8_TRX_TX)
-				pthread_cond_wait(&FT8.TX_status_cond, &FT8.TRX_status_lock);
-			pthread_mutex_unlock(&FT8.TRX_status_lock);		
+			pthread_mutex_lock(&FTX.TRX_status_lock);
+			while (!gcftx_shutdown_requested() && FTX.TRX_status != GCFTX_TRX_TX)
+				pthread_cond_wait(&FTX.TX_status_cond, &FTX.TRX_status_lock);
+			pthread_mutex_unlock(&FTX.TRX_status_lock);
 		}
 	}
 
-	tranceiver_rtx(GCFT8_TRX_RX);
+	tranceiver_rtx(GCFTX_TRX_RX);
 }
 
 static void * Thread_RX(void *arg) {
@@ -3903,21 +3903,21 @@ static void tranceiver_init()
 	cssl_putstring(serial.port,"FR0;"); //Set receive on VFO_A
 	cssl_putstring(serial.port,"FT0;"); //Set Transmit on VFO_A
 	cssl_putstring(serial.port,"Q10;"); //Set USB mode
-	if(!tranceiver_set_freq(FT8.Tranceiver_VFOA_Freq)){printf("Unable to communicate with tranceiver!");exit(-1);} //Set frequency stored
+	if(!tranceiver_set_freq(FTX.Tranceiver_VFOA_Freq)){printf("Unable to communicate with tranceiver!");exit(-1);} //Set frequency stored
 }
 
-static void tranceiver_rtx(gcft8_trx_state_t ptt)
+static void tranceiver_rtx(gcftx_trx_state_t ptt)
 {
 	if (serial.port == NULL)
 		return;
 
-	if (ptt == GCFT8_TRX_TX){
+	if (ptt == GCFTX_TRX_TX){
 		#if DEBUG
 		printf("tranceiver ptt on\n");
 		#endif
 		cssl_putstring(serial.port,"TX;");
 		} //Set receiving
-	else if (ptt == GCFT8_TRX_RX){
+	else if (ptt == GCFTX_TRX_RX){
 		#if DEBUG
 		printf("tranceiver ptt off\n");
 		#endif
@@ -3930,7 +3930,7 @@ static void install_signal_handlers(void)
 	struct sigaction action;
 
 	memset(&action, 0, sizeof(action));
-	action.sa_handler = gcft8_signal_handler;
+	action.sa_handler = gcftx_signal_handler;
 	sigemptyset(&action.sa_mask);
 	sigaction(SIGINT, &action, NULL);
 	sigaction(SIGTERM, &action, NULL);
@@ -3938,11 +3938,11 @@ static void install_signal_handlers(void)
 
 static void wake_workers_for_shutdown(void)
 {
-	pthread_mutex_lock(&FT8.TRX_status_lock);
-	FT8.TRX_status = GCFT8_TRX_RX;
-	pthread_cond_broadcast(&FT8.RX_status_cond);
-	pthread_cond_broadcast(&FT8.TX_status_cond);
-	pthread_mutex_unlock(&FT8.TRX_status_lock);
+	pthread_mutex_lock(&FTX.TRX_status_lock);
+	FTX.TRX_status = GCFTX_TRX_RX;
+	pthread_cond_broadcast(&FTX.RX_status_cond);
+	pthread_cond_broadcast(&FTX.TX_status_cond);
+	pthread_mutex_unlock(&FTX.TRX_status_lock);
 
 	if (sound.capture_handle != NULL)
 		snd_pcm_drop(sound.capture_handle);
@@ -3950,15 +3950,15 @@ static void wake_workers_for_shutdown(void)
 		snd_pcm_drop(sound.playback_handle);
 }
 
-static void gcft8_cleanup(void)
+static void gcftx_cleanup(void)
 {
 	clear_status_line();
-	tranceiver_rtx(GCFT8_TRX_RX);
+	tranceiver_rtx(GCFTX_TRX_RX);
 	serial_deinit();
 	playback_audioDeInit();
 	capture_audioDeInit();
-	gcft8_tx_context_free(&gcft8_tx_context);
-	gcft8_rx_context_free(&gcft8_rx_context);
+	gcftx_tx_context_free(&gcftx_tx_context);
+	gcftx_rx_context_free(&gcftx_rx_context);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3967,7 +3967,7 @@ static void gcft8_cleanup(void)
 static void print_usage(const char* program_name, FILE* stream)
 {
 	if ((program_name == NULL) || (program_name[0] == '\0'))
-		program_name = "gcFT8";
+		program_name = "gcFTx";
 
 	fprintf(stream,
 		"Usage:\n"
@@ -3977,13 +3977,13 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  %s --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --max-same-tx-repeats %d --beep\n"
 		"\n"
 		"Configuration file:\n"
-		"  If gcFT8.conf exists in the current directory, options are loaded from it before command-line options.\n"
+		"  If gcFTx.conf exists in the current directory, options are loaded from it before command-line options.\n"
 		"  Use --conf-file <path> to load another configuration file instead.\n"
 		"  Use one option per line: mode=ft8, sound-device=plughw:CARD=PCH,DEV=0, or --band 20.\n"
 		"\n"
 		"Options:\n"
 		"  --help                     Show this help and exit\n"
-		"  --conf-file <path>         Load this configuration file instead of gcFT8.conf\n"
+		"  --conf-file <path>         Load this configuration file instead of gcFTx.conf\n"
 		"  --mode <ft8|ft4|ft2>       Digital mode (default: ft8)\n"
 		"  --sound-device <device>    Required ALSA capture and playback device, prefer plughw\n"
 		"  --callsign <callsign>      Required local callsign\n"
@@ -4012,25 +4012,25 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  Band       FT8 Hz    FT4 Hz    FT2 Hz\n",
 		program_name,
 		program_name,
-		GCFT8_MAX_SAME_TX_REPEATS,
-		GCFT8_MAX_SAME_TX_REPEATS);
+		GCFTX_MAX_SAME_TX_REPEATS,
+		GCFTX_MAX_SAME_TX_REPEATS);
 
-	for (size_t idx = 0; idx < sizeof(gcft8_band_frequencies) / sizeof(gcft8_band_frequencies[0]); ++idx)
+	for (size_t idx = 0; idx < sizeof(gcftx_band_frequencies) / sizeof(gcftx_band_frequencies[0]); ++idx)
 	{
 		char ft4_text[16];
 		char ft2_text[16];
 
-		if (gcft8_band_frequencies[idx].ft4_frequency_hz > 0)
-			snprintf(ft4_text, sizeof(ft4_text), "%d", gcft8_band_frequencies[idx].ft4_frequency_hz);
+		if (gcftx_band_frequencies[idx].ft4_frequency_hz > 0)
+			snprintf(ft4_text, sizeof(ft4_text), "%d", gcftx_band_frequencies[idx].ft4_frequency_hz);
 		else
 			copy_text(ft4_text, sizeof(ft4_text), "n/a");
 
-		if (gcft8_band_frequencies[idx].ft2_frequency_hz > 0)
-			snprintf(ft2_text, sizeof(ft2_text), "%d", gcft8_band_frequencies[idx].ft2_frequency_hz);
+		if (gcftx_band_frequencies[idx].ft2_frequency_hz > 0)
+			snprintf(ft2_text, sizeof(ft2_text), "%d", gcftx_band_frequencies[idx].ft2_frequency_hz);
 		else
 			copy_text(ft2_text, sizeof(ft2_text), "n/a");
 
-		fprintf(stream, "  %2sm  %8d  %8s  %8s\n", gcft8_band_frequencies[idx].band, gcft8_band_frequencies[idx].ft8_frequency_hz, ft4_text, ft2_text);
+		fprintf(stream, "  %2sm  %8d  %8s  %8s\n", gcftx_band_frequencies[idx].band, gcftx_band_frequencies[idx].ft8_frequency_hz, ft4_text, ft2_text);
 	}
 
 	fprintf(stream,
@@ -4066,9 +4066,9 @@ enum
 
 typedef enum
 {
-	GCFT8_OPTION_SOURCE_CONFIG,
-	GCFT8_OPTION_SOURCE_CLI
-} gcft8_option_source_t;
+	GCFTX_OPTION_SOURCE_CONFIG,
+	GCFTX_OPTION_SOURCE_CLI
+} gcftx_option_source_t;
 
 typedef struct
 {
@@ -4083,16 +4083,16 @@ typedef struct
 	bool cli_frequency_option_used;
 	bool cli_band_option_used;
 	char selected_band[16];
-} gcft8_option_state_t;
+} gcftx_option_state_t;
 
 typedef struct
 {
 	const char* name;
 	int option_id;
 	bool requires_value;
-} gcft8_config_option_t;
+} gcftx_config_option_t;
 
-static void gcft8_print_option_error_prefix(const char* source_name, int source_line)
+static void gcftx_print_option_error_prefix(const char* source_name, int source_line)
 {
 	if ((source_name != NULL) && (source_line > 0))
 		fprintf(stderr, "%s:%d: ", source_name, source_line);
@@ -4100,7 +4100,7 @@ static void gcft8_print_option_error_prefix(const char* source_name, int source_
 		fprintf(stderr, "%s: ", source_name);
 }
 
-static bool gcft8_parse_config_bool(const char* value, bool* result)
+static bool gcftx_parse_config_bool(const char* value, bool* result)
 {
 	char normalized[8];
 	size_t len;
@@ -4133,21 +4133,21 @@ static bool gcft8_parse_config_bool(const char* value, bool* result)
 	return false;
 }
 
-static void gcft8_apply_option(int option_id, const char* value, gcft8_option_state_t* state, gcft8_option_source_t source, const char* source_name, int source_line, const char* program_name)
+static void gcftx_apply_option(int option_id, const char* value, gcftx_option_state_t* state, gcftx_option_source_t source, const char* source_name, int source_line, const char* program_name)
 {
 	if ((state == NULL) || (program_name == NULL))
 		exit(1);
 
-#define GCFT8_OPTION_ERROR(...) do { \
-	gcft8_print_option_error_prefix(source_name, source_line); \
+#define GCFTX_OPTION_ERROR(...) do { \
+	gcftx_print_option_error_prefix(source_name, source_line); \
 	fprintf(stderr, __VA_ARGS__); \
 	print_usage(program_name, stderr); \
 	exit(1); \
 } while (0)
 
-#define GCFT8_REQUIRE_VALUE(option_name) do { \
+#define GCFTX_REQUIRE_VALUE(option_name) do { \
 	if ((value == NULL) || (value[0] == '\0')) \
-		GCFT8_OPTION_ERROR("Missing value for %s.\n", option_name); \
+		GCFTX_OPTION_ERROR("Missing value for %s.\n", option_name); \
 } while (0)
 
 	switch (option_id)
@@ -4156,49 +4156,49 @@ static void gcft8_apply_option(int option_id, const char* value, gcft8_option_st
 		print_usage(program_name, stdout);
 		exit(0);
 	case CLI_OPTION_CONF_FILE:
-		GCFT8_REQUIRE_VALUE("--conf-file");
+		GCFTX_REQUIRE_VALUE("--conf-file");
 		break;
 	case CLI_OPTION_BEEP:
 		if ((value != NULL) && (value[0] != '\0'))
 		{
 			bool enabled;
-			if (!gcft8_parse_config_bool(value, &enabled))
-				GCFT8_OPTION_ERROR("Invalid beep value '%s'. Use true/false, yes/no, on/off, or 1/0.\n", value);
-			FT8.beep_on_log = enabled ? 1 : 0;
+			if (!gcftx_parse_config_bool(value, &enabled))
+				GCFTX_OPTION_ERROR("Invalid beep value '%s'. Use true/false, yes/no, on/off, or 1/0.\n", value);
+			FTX.beep_on_log = enabled ? 1 : 0;
 		}
 		else
 		{
-			FT8.beep_on_log = 1;
+			FTX.beep_on_log = 1;
 		}
 		break;
 	case CLI_OPTION_SOUND_DEVICE:
-		GCFT8_REQUIRE_VALUE("--sound-device");
+		GCFTX_REQUIRE_VALUE("--sound-device");
 		state->sound_device_option_used = true;
-		copy_text(gcft8_sound_device_text, sizeof(gcft8_sound_device_text), value);
-		sound.capture_sound_device = gcft8_sound_device_text;
-		sound.playback_sound_device = gcft8_sound_device_text;
+		copy_text(gcftx_sound_device_text, sizeof(gcftx_sound_device_text), value);
+		sound.capture_sound_device = gcftx_sound_device_text;
+		sound.playback_sound_device = gcftx_sound_device_text;
 		break;
 	case CLI_OPTION_CALLSIGN:
-		GCFT8_REQUIRE_VALUE("--callsign");
+		GCFTX_REQUIRE_VALUE("--callsign");
 		state->callsign_option_used = true;
-		copy_text(FT8.Local_CALLSIGN, sizeof(FT8.Local_CALLSIGN), value);
+		copy_text(FTX.Local_CALLSIGN, sizeof(FTX.Local_CALLSIGN), value);
 		break;
 	case CLI_OPTION_LOCATOR:
-		GCFT8_REQUIRE_VALUE("--locator");
+		GCFTX_REQUIRE_VALUE("--locator");
 		state->locator_option_used = true;
-		copy_text(FT8.Local_LOCATOR, sizeof(FT8.Local_LOCATOR), value);
+		copy_text(FTX.Local_LOCATOR, sizeof(FTX.Local_LOCATOR), value);
 		break;
 	case CLI_OPTION_MODE:
-		GCFT8_REQUIRE_VALUE("--mode");
-		if (!gcft8_parse_mode(value, &gcft8_mode))
-			GCFT8_OPTION_ERROR("Invalid mode '%s'. Allowed modes: ft8, ft4, ft2.\n", value);
+		GCFTX_REQUIRE_VALUE("--mode");
+		if (!gcftx_parse_mode(value, &gcftx_mode))
+			GCFTX_OPTION_ERROR("Invalid mode '%s'. Allowed modes: ft8, ft4, ft2.\n", value);
 		break;
 	case CLI_OPTION_FREQUENCY:
-		GCFT8_REQUIRE_VALUE("--frequency");
-		if (source == GCFT8_OPTION_SOURCE_CONFIG)
+		GCFTX_REQUIRE_VALUE("--frequency");
+		if (source == GCFTX_OPTION_SOURCE_CONFIG)
 		{
 			if (state->config_band_option_used)
-				GCFT8_OPTION_ERROR("Use either frequency or band, not both.\n");
+				GCFTX_OPTION_ERROR("Use either frequency or band, not both.\n");
 			state->config_frequency_option_used = true;
 		}
 		else
@@ -4208,15 +4208,15 @@ static void gcft8_apply_option(int option_id, const char* value, gcft8_option_st
 			state->selected_band[0] = '\0';
 		}
 		state->frequency_option_used = true;
-		if (!gcft8_parse_int_range(value, 1, INT_MAX, &FT8.Tranceiver_VFOA_Freq))
-			GCFT8_OPTION_ERROR("Invalid frequency '%s'. Use a positive integer frequency in Hz.\n", value);
+		if (!gcftx_parse_int_range(value, 1, INT_MAX, &FTX.Tranceiver_VFOA_Freq))
+			GCFTX_OPTION_ERROR("Invalid frequency '%s'. Use a positive integer frequency in Hz.\n", value);
 		break;
 	case CLI_OPTION_BAND:
-		GCFT8_REQUIRE_VALUE("--band");
-		if (source == GCFT8_OPTION_SOURCE_CONFIG)
+		GCFTX_REQUIRE_VALUE("--band");
+		if (source == GCFTX_OPTION_SOURCE_CONFIG)
 		{
 			if (state->config_frequency_option_used)
-				GCFT8_OPTION_ERROR("Use either frequency or band, not both.\n");
+				GCFTX_OPTION_ERROR("Use either frequency or band, not both.\n");
 			state->config_band_option_used = true;
 		}
 		else
@@ -4228,50 +4228,50 @@ static void gcft8_apply_option(int option_id, const char* value, gcft8_option_st
 		copy_text(state->selected_band, sizeof(state->selected_band), value);
 		break;
 	case CLI_OPTION_FILTER:
-		GCFT8_REQUIRE_VALUE("--filter");
-		if (!ft8_parse_filter_mode(value, &FT8.filter_on_cq))
-			GCFT8_OPTION_ERROR("Invalid filter '%s'. Allowed filters: 0, 1, 2, 3, 4, 5, 6.\n", value);
+		GCFTX_REQUIRE_VALUE("--filter");
+		if (!ftx_parse_filter_mode(value, &FTX.filter_on_cq))
+			GCFTX_OPTION_ERROR("Invalid filter '%s'. Allowed filters: 0, 1, 2, 3, 4, 5, 6.\n", value);
 		break;
 	case CLI_OPTION_MAX_SAME_TX_REPEATS:
-		GCFT8_REQUIRE_VALUE("--max-same-tx-repeats");
-		if (!gcft8_parse_int_range(value, 1, 100, &gcft8_max_same_tx_repeats))
-			GCFT8_OPTION_ERROR("Invalid max same TX repeats '%s'. Use an integer from 1 to 100.\n", value);
+		GCFTX_REQUIRE_VALUE("--max-same-tx-repeats");
+		if (!gcftx_parse_int_range(value, 1, 100, &gcftx_max_same_tx_repeats))
+			GCFTX_OPTION_ERROR("Invalid max same TX repeats '%s'. Use an integer from 1 to 100.\n", value);
 		break;
 	case CLI_OPTION_SNR_MIN:
-		GCFT8_REQUIRE_VALUE("--snr-min");
-		if (!gcft8_parse_snr_min(value, &gcft8_snr_min))
-			GCFT8_OPTION_ERROR("Invalid SNR minimum '%s'. Use an integer value, for example -18.\n", value);
-		gcft8_snr_min_enabled = true;
+		GCFTX_REQUIRE_VALUE("--snr-min");
+		if (!gcftx_parse_snr_min(value, &gcftx_snr_min))
+			GCFTX_OPTION_ERROR("Invalid SNR minimum '%s'. Use an integer value, for example -18.\n", value);
+		gcftx_snr_min_enabled = true;
 		break;
 	case CLI_OPTION_ONLY_PREFIX:
-		GCFT8_REQUIRE_VALUE("--only-prefix");
-		if (!gcft8_parse_only_prefixes(value))
-			GCFT8_OPTION_ERROR("Invalid prefix list '%s'. Use comma-separated alphanumeric prefixes, for example JA,VK,ZL.\n", value);
+		GCFTX_REQUIRE_VALUE("--only-prefix");
+		if (!gcftx_parse_only_prefixes(value))
+			GCFTX_OPTION_ERROR("Invalid prefix list '%s'. Use comma-separated alphanumeric prefixes, for example JA,VK,ZL.\n", value);
 		break;
 	case CLI_OPTION_ONLY_SP_TAG:
-		GCFT8_REQUIRE_VALUE("--only-sp-tag");
-		if (!gcft8_parse_only_sp_tags(value))
-			GCFT8_OPTION_ERROR("Invalid special CQ tag list '%s'. Use comma-separated 1-4 letter tags or 3-digit tags, for example POTA,SOTA,DX.\n", value);
+		GCFTX_REQUIRE_VALUE("--only-sp-tag");
+		if (!gcftx_parse_only_sp_tags(value))
+			GCFTX_OPTION_ERROR("Invalid special CQ tag list '%s'. Use comma-separated 1-4 letter tags or 3-digit tags, for example POTA,SOTA,DX.\n", value);
 		break;
 	case CLI_OPTION_ONLY_LOCATOR_ZONE:
-		GCFT8_REQUIRE_VALUE("--only-locator-zone");
-		if (!gcft8_parse_locator_zones(value))
-			GCFT8_OPTION_ERROR("Invalid locator zone list '%s'. Use comma-separated LL:LL ranges with A-R letters, for example BP:FL,IO:KM.\n", value);
+		GCFTX_REQUIRE_VALUE("--only-locator-zone");
+		if (!gcftx_parse_locator_zones(value))
+			GCFTX_OPTION_ERROR("Invalid locator zone list '%s'. Use comma-separated LL:LL ranges with A-R letters, for example BP:FL,IO:KM.\n", value);
 		break;
 	case CLI_OPTION_SERIAL_DEVICE:
-		GCFT8_REQUIRE_VALUE("--serial-device");
+		GCFTX_REQUIRE_VALUE("--serial-device");
 		state->serial_device_option_used = true;
 		copy_text(serial.pathname, sizeof(serial.pathname), value);
 		break;
 	default:
-		GCFT8_OPTION_ERROR("Unknown option.\n");
+		GCFTX_OPTION_ERROR("Unknown option.\n");
 	}
 
-#undef GCFT8_REQUIRE_VALUE
-#undef GCFT8_OPTION_ERROR
+#undef GCFTX_REQUIRE_VALUE
+#undef GCFTX_OPTION_ERROR
 }
 
-static char* gcft8_config_trim(char* text)
+static char* gcftx_config_trim(char* text)
 {
 	char* end;
 
@@ -4288,7 +4288,7 @@ static char* gcft8_config_trim(char* text)
 	return text;
 }
 
-static void gcft8_config_strip_inline_comment(char* text)
+static void gcftx_config_strip_inline_comment(char* text)
 {
 	char quote = '\0';
 
@@ -4318,7 +4318,7 @@ static void gcft8_config_strip_inline_comment(char* text)
 	}
 }
 
-static char* gcft8_config_unquote(char* value)
+static char* gcftx_config_unquote(char* value)
 {
 	size_t len;
 
@@ -4335,11 +4335,11 @@ static char* gcft8_config_unquote(char* value)
 	return value;
 }
 
-static bool gcft8_config_option_id_from_name(const char* name, int* option_id, bool* requires_value)
+static bool gcftx_config_option_id_from_name(const char* name, int* option_id, bool* requires_value)
 {
 	char normalized[64];
 	size_t out_len = 0;
-	static const gcft8_config_option_t options[] = {
+	static const gcftx_config_option_t options[] = {
 		{ "help", CLI_OPTION_HELP, false },
 		{ "beep", CLI_OPTION_BEEP, false },
 		{ "sound-device", CLI_OPTION_SOUND_DEVICE, true },
@@ -4387,10 +4387,10 @@ static bool gcft8_config_option_id_from_name(const char* name, int* option_id, b
 	return false;
 }
 
-static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state, const char* program_name, bool required)
+static void gcftx_load_config_file(const char* path, gcftx_option_state_t* state, const char* program_name, bool required)
 {
 	FILE* file;
-	char line[GCFT8_CONFIG_MAX_LINE];
+	char line[GCFTX_CONFIG_MAX_LINE];
 	int line_number = 0;
 
 	if ((path == NULL) || (state == NULL) || (program_name == NULL))
@@ -4425,12 +4425,12 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 		}
 
 		line[strcspn(line, "\r\n")] = '\0';
-		text = gcft8_config_trim(line);
+		text = gcftx_config_trim(line);
 		if ((text == NULL) || (text[0] == '\0') || (text[0] == '#') || (text[0] == ';'))
 			continue;
 
-		gcft8_config_strip_inline_comment(text);
-		text = gcft8_config_trim(text);
+		gcftx_config_strip_inline_comment(text);
+		text = gcftx_config_trim(text);
 		if ((text == NULL) || (text[0] == '\0'))
 			continue;
 
@@ -4439,7 +4439,7 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 		if (separator != NULL)
 		{
 			*separator = '\0';
-			value = gcft8_config_trim(separator + 1);
+			value = gcftx_config_trim(separator + 1);
 		}
 		else
 		{
@@ -4450,12 +4450,12 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 			if (*separator != '\0')
 			{
 				*separator = '\0';
-				value = gcft8_config_trim(separator + 1);
+				value = gcftx_config_trim(separator + 1);
 			}
 		}
 
-		name = gcft8_config_trim(name);
-		value = gcft8_config_unquote(gcft8_config_trim(value));
+		name = gcftx_config_trim(name);
+		value = gcftx_config_unquote(gcftx_config_trim(value));
 
 		if ((name == NULL) || (name[0] == '\0'))
 		{
@@ -4464,7 +4464,7 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 			exit(1);
 		}
 
-		if (!gcft8_config_option_id_from_name(name, &option_id, &requires_value))
+		if (!gcftx_config_option_id_from_name(name, &option_id, &requires_value))
 		{
 			fprintf(stderr, "%s:%d: unknown configuration option '%s'.\n", path, line_number, name);
 			fclose(file);
@@ -4478,7 +4478,7 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 			exit(1);
 		}
 
-		gcft8_apply_option(option_id, value, state, GCFT8_OPTION_SOURCE_CONFIG, path, line_number, program_name);
+		gcftx_apply_option(option_id, value, state, GCFTX_OPTION_SOURCE_CONFIG, path, line_number, program_name);
 	}
 
 	if (ferror(file))
@@ -4494,9 +4494,9 @@ static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state
 int main (int argc, char *argv[])
 {
 	int c;
-	const char* config_file = GCFT8_DEFAULT_CONFIG_FILE;
+	const char* config_file = GCFTX_DEFAULT_CONFIG_FILE;
 	bool config_file_required = false;
-	gcft8_option_state_t option_state;
+	gcftx_option_state_t option_state;
 	static const struct option long_options[] = {
 		{ "help", no_argument, NULL, CLI_OPTION_HELP },
 		{ "conf-file", required_argument, NULL, CLI_OPTION_CONF_FILE },
@@ -4552,11 +4552,11 @@ int main (int argc, char *argv[])
 		}
 	}
 
-	gcft8_load_config_file(config_file, &option_state, argv[0], config_file_required);
+	gcftx_load_config_file(config_file, &option_state, argv[0], config_file_required);
 
 	optind = 1;
 	while ((c = getopt_long(argc, argv, "", long_options, NULL)) != -1)
-		gcft8_apply_option(c, optarg, &option_state, GCFT8_OPTION_SOURCE_CLI, NULL, 0, argv[0]);
+		gcftx_apply_option(c, optarg, &option_state, GCFTX_OPTION_SOURCE_CLI, NULL, 0, argv[0]);
 
 	if (optind < argc)
 	{
@@ -4577,13 +4577,13 @@ int main (int argc, char *argv[])
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
-	if (!option_state.callsign_option_used || (FT8.Local_CALLSIGN[0] == '\0'))
+	if (!option_state.callsign_option_used || (FTX.Local_CALLSIGN[0] == '\0'))
 	{
 		fprintf(stderr, "Missing required --callsign.\n");
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
-	if (!option_state.locator_option_used || (FT8.Local_LOCATOR[0] == '\0'))
+	if (!option_state.locator_option_used || (FTX.Local_LOCATOR[0] == '\0'))
 	{
 		fprintf(stderr, "Missing required --locator.\n");
 		print_usage(argv[0], stderr);
@@ -4604,35 +4604,35 @@ int main (int argc, char *argv[])
 
 	if (option_state.band_option_used)
 	{
-		if (!gcft8_frequency_for_band(option_state.selected_band, gcft8_mode, &FT8.Tranceiver_VFOA_Freq))
+		if (!gcftx_frequency_for_band(option_state.selected_band, gcftx_mode, &FTX.Tranceiver_VFOA_Freq))
 		{
-			fprintf(stderr, "Invalid %s band '%s'. Use --help to list supported bands.\n", gcft8_current_mode_config()->name, option_state.selected_band);
+			fprintf(stderr, "Invalid %s band '%s'. Use --help to list supported bands.\n", gcftx_current_mode_config()->name, option_state.selected_band);
 			print_usage(argv[0], stderr);
 			exit(1);
 		}
-		gcft8_set_filter_band_context(option_state.selected_band);
-		gcft8_filter_frequency_mhz = FT8.Tranceiver_VFOA_Freq / 1000000;
+		gcftx_set_filter_band_context(option_state.selected_band);
+		gcftx_filter_frequency_mhz = FTX.Tranceiver_VFOA_Freq / 1000000;
 	}
 	else if (option_state.frequency_option_used)
 	{
-		gcft8_set_filter_frequency_context(FT8.Tranceiver_VFOA_Freq);
+		gcftx_set_filter_frequency_context(FTX.Tranceiver_VFOA_Freq);
 	}
 
 	install_signal_handlers();
-	gcft8_tx_context_init(&gcft8_tx_context);
-	gcft8_rx_context_init(&gcft8_rx_context);
-	gcft8_qso_sessions_init();
+	gcftx_tx_context_init(&gcftx_tx_context);
+	gcftx_rx_context_init(&gcftx_rx_context);
+	gcftx_qso_sessions_init();
 	
-	latLonForGrid(FT8.Local_LOCATOR,FT8.Local_latlon);
+	latLonForGrid(FTX.Local_LOCATOR,FTX.Local_latlon);
 	callsign_hash_cache_init();
-	gcft8_update_adif_log_filename(FT8.Local_CALLSIGN, FT8.log_file_name, sizeof(FT8.log_file_name));
+	gcftx_update_adif_log_filename(FTX.Local_CALLSIGN, FTX.log_file_name, sizeof(FTX.log_file_name));
 	load_qso_filter_from_adif();
 	
 	capture_audioInit();
 	playback_audioInit();
 	
-	const gcft8_mode_config_t* startup_mode_cfg = gcft8_current_mode_config();
-	if (!gcft8_tx_context_preallocate(&gcft8_tx_context, startup_mode_cfg, (int)sound.playback_sound_rate))
+	const gcftx_mode_config_t* startup_mode_cfg = gcftx_current_mode_config();
+	if (!gcftx_tx_context_preallocate(&gcftx_tx_context, startup_mode_cfg, (int)sound.playback_sound_rate))
 	{
 		fprintf(stderr, "Out of memory while preallocating TX buffers for %s at %u Hz\n", startup_mode_cfg->name, sound.playback_sound_rate);
 		exit(1);
@@ -4642,13 +4642,13 @@ int main (int argc, char *argv[])
 	char startup_prefix_filter[256];
 	char startup_sp_tag_filter[256];
 	char startup_locator_zone_filter[256];
-	if (gcft8_snr_min_enabled)
-		snprintf(startup_snr_min_text, sizeof(startup_snr_min_text), "%d", gcft8_snr_min);
+	if (gcftx_snr_min_enabled)
+		snprintf(startup_snr_min_text, sizeof(startup_snr_min_text), "%d", gcftx_snr_min);
 	else
 		copy_text(startup_snr_min_text, sizeof(startup_snr_min_text), "off");
-	gcft8_format_only_prefixes(startup_prefix_filter, sizeof(startup_prefix_filter));
-	gcft8_format_only_sp_tags(startup_sp_tag_filter, sizeof(startup_sp_tag_filter));
-	gcft8_format_locator_zones(startup_locator_zone_filter, sizeof(startup_locator_zone_filter));
+	gcftx_format_only_prefixes(startup_prefix_filter, sizeof(startup_prefix_filter));
+	gcftx_format_only_sp_tags(startup_sp_tag_filter, sizeof(startup_sp_tag_filter));
+	gcftx_format_locator_zones(startup_locator_zone_filter, sizeof(startup_locator_zone_filter));
 	printf("Starting with this:\n"
 		"-mode is %s\n"
 		"-set Freq to %d\n"
@@ -4665,22 +4665,22 @@ int main (int argc, char *argv[])
 		"-Locator zone filter is %s\n"
 		"-Beep on log %d\n",
 		startup_mode_cfg->name,
-		FT8.Tranceiver_VFOA_Freq,
-		FT8.Local_CALLSIGN,
-		FT8.Local_LOCATOR,
+		FTX.Tranceiver_VFOA_Freq,
+		FTX.Local_CALLSIGN,
+		FTX.Local_LOCATOR,
 		serial.pathname,
 		sound.capture_sound_device,
-		FT8.log_file_name,
-		FT8.filter_on_cq,
-		ft8_filter_mode_name(FT8.filter_on_cq),
-		gcft8_max_same_tx_repeats,
+		FTX.log_file_name,
+		FTX.filter_on_cq,
+		ftx_filter_mode_name(FTX.filter_on_cq),
+		gcftx_max_same_tx_repeats,
 		startup_snr_min_text,
 		startup_prefix_filter,
 		startup_sp_tag_filter,
 		startup_locator_zone_filter,
-		FT8.beep_on_log);
+		FTX.beep_on_log);
 		
-	if(FT8.beep_on_log){putchar('\07');putchar('\a');}
+	if(FTX.beep_on_log){putchar('\07');putchar('\a');}
 		
 	int serres = serial_init();
 	if(serres==-1){printf("Could not open serial port.");}
@@ -4692,7 +4692,7 @@ int main (int argc, char *argv[])
 	pthread_t thread_TX;
 	pthread_create(&thread_TX, NULL, Thread_TX, NULL);
 	
-	while (!gcft8_shutdown_requested())
+	while (!gcftx_shutdown_requested())
 	{
 		usleep(500000);
 		advance_cursor(startup_mode_cfg->slot_time);
@@ -4705,7 +4705,7 @@ int main (int argc, char *argv[])
 	wake_workers_for_shutdown();
 	pthread_join(thread_RX, NULL);
 	pthread_join(thread_TX, NULL);
-	gcft8_cleanup();
+	gcftx_cleanup();
 	printf("Stopped cleanly.\n");
 	return 0;
 }
