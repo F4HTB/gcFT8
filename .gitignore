@@ -1,5 +1,6 @@
 gcFT8
 gcFT8-debug
+gcFT8.conf
 build/
 *.log
 *.adif

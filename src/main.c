@@ -43,6 +43,9 @@
 #define GCFT8_MAX_LOCATOR_ZONES 64
 #define GCFT8_TX_MESSAGE_TEXT_SIZE 50
 #define GCFT8_ADIF_RECORD_TEXT_SIZE 512
+#define GCFT8_CONFIG_FILE "gcFT8.conf"
+#define GCFT8_CONFIG_MAX_LINE 1024
+#define GCFT8_SOUND_DEVICE_TEXT_SIZE 256
 
 #define FT8_FILTER_LISTEN_ONLY 0
 #define FT8_FILTER_RANDOM_CQ 1
@@ -1844,6 +1847,8 @@ soundInfo sound={
 	.playback_buffer_frames = 1024,
 	.playback_sound_rate = 12000
 };
+
+static char gcft8_sound_device_text[GCFT8_SOUND_DEVICE_TEXT_SIZE];
 
 /* Global serial info. */
 
@@ -3971,6 +3976,10 @@ static void print_usage(const char* program_name, FILE* stream)
 		"Example:\n"
 		"  %s --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --max-same-tx-repeats %d --beep\n"
 		"\n"
+		"Configuration file:\n"
+		"  If gcFT8.conf exists in the current directory, options are loaded from it before command-line options.\n"
+		"  Use one option per line: mode=ft8, sound-device=plughw:CARD=PCH,DEV=0, or --band 20.\n"
+		"\n"
 		"Options:\n"
 		"  --help                     Show this help and exit\n"
 		"  --mode <ft8|ft4|ft2>       Digital mode (default: ft8)\n"
@@ -4052,16 +4061,434 @@ enum
 	CLI_OPTION_MAX_SAME_TX_REPEATS
 };
 
+typedef enum
+{
+	GCFT8_OPTION_SOURCE_CONFIG,
+	GCFT8_OPTION_SOURCE_CLI
+} gcft8_option_source_t;
+
+typedef struct
+{
+	bool callsign_option_used;
+	bool locator_option_used;
+	bool sound_device_option_used;
+	bool serial_device_option_used;
+	bool frequency_option_used;
+	bool band_option_used;
+	bool config_frequency_option_used;
+	bool config_band_option_used;
+	bool cli_frequency_option_used;
+	bool cli_band_option_used;
+	char selected_band[16];
+} gcft8_option_state_t;
+
+typedef struct
+{
+	const char* name;
+	int option_id;
+	bool requires_value;
+} gcft8_config_option_t;
+
+static void gcft8_print_option_error_prefix(const char* source_name, int source_line)
+{
+	if ((source_name != NULL) && (source_line > 0))
+		fprintf(stderr, "%s:%d: ", source_name, source_line);
+	else if (source_name != NULL)
+		fprintf(stderr, "%s: ", source_name);
+}
+
+static bool gcft8_parse_config_bool(const char* value, bool* result)
+{
+	char normalized[8];
+	size_t len;
+
+	if ((value == NULL) || (result == NULL))
+		return false;
+
+	len = strlen(value);
+	if ((len == 0) || (len >= sizeof(normalized)))
+		return false;
+
+	for (size_t idx = 0; idx < len; ++idx)
+		normalized[idx] = (char)tolower((unsigned char)value[idx]);
+	normalized[len] = '\0';
+
+	if ((strcmp(normalized, "1") == 0) || (strcmp(normalized, "true") == 0) ||
+		(strcmp(normalized, "yes") == 0) || (strcmp(normalized, "on") == 0))
+	{
+		*result = true;
+		return true;
+	}
+
+	if ((strcmp(normalized, "0") == 0) || (strcmp(normalized, "false") == 0) ||
+		(strcmp(normalized, "no") == 0) || (strcmp(normalized, "off") == 0))
+	{
+		*result = false;
+		return true;
+	}
+
+	return false;
+}
+
+static void gcft8_apply_option(int option_id, const char* value, gcft8_option_state_t* state, gcft8_option_source_t source, const char* source_name, int source_line, const char* program_name)
+{
+	if ((state == NULL) || (program_name == NULL))
+		exit(1);
+
+#define GCFT8_OPTION_ERROR(...) do { \
+	gcft8_print_option_error_prefix(source_name, source_line); \
+	fprintf(stderr, __VA_ARGS__); \
+	print_usage(program_name, stderr); \
+	exit(1); \
+} while (0)
+
+#define GCFT8_REQUIRE_VALUE(option_name) do { \
+	if ((value == NULL) || (value[0] == '\0')) \
+		GCFT8_OPTION_ERROR("Missing value for %s.\n", option_name); \
+} while (0)
+
+	switch (option_id)
+	{
+	case CLI_OPTION_HELP:
+		print_usage(program_name, stdout);
+		exit(0);
+	case CLI_OPTION_BEEP:
+		if ((value != NULL) && (value[0] != '\0'))
+		{
+			bool enabled;
+			if (!gcft8_parse_config_bool(value, &enabled))
+				GCFT8_OPTION_ERROR("Invalid beep value '%s'. Use true/false, yes/no, on/off, or 1/0.\n", value);
+			FT8.beep_on_log = enabled ? 1 : 0;
+		}
+		else
+		{
+			FT8.beep_on_log = 1;
+		}
+		break;
+	case CLI_OPTION_SOUND_DEVICE:
+		GCFT8_REQUIRE_VALUE("--sound-device");
+		state->sound_device_option_used = true;
+		copy_text(gcft8_sound_device_text, sizeof(gcft8_sound_device_text), value);
+		sound.capture_sound_device = gcft8_sound_device_text;
+		sound.playback_sound_device = gcft8_sound_device_text;
+		break;
+	case CLI_OPTION_CALLSIGN:
+		GCFT8_REQUIRE_VALUE("--callsign");
+		state->callsign_option_used = true;
+		copy_text(FT8.Local_CALLSIGN, sizeof(FT8.Local_CALLSIGN), value);
+		break;
+	case CLI_OPTION_LOCATOR:
+		GCFT8_REQUIRE_VALUE("--locator");
+		state->locator_option_used = true;
+		copy_text(FT8.Local_LOCATOR, sizeof(FT8.Local_LOCATOR), value);
+		break;
+	case CLI_OPTION_MODE:
+		GCFT8_REQUIRE_VALUE("--mode");
+		if (!gcft8_parse_mode(value, &gcft8_mode))
+			GCFT8_OPTION_ERROR("Invalid mode '%s'. Allowed modes: ft8, ft4, ft2.\n", value);
+		break;
+	case CLI_OPTION_FREQUENCY:
+		GCFT8_REQUIRE_VALUE("--frequency");
+		if (source == GCFT8_OPTION_SOURCE_CONFIG)
+		{
+			if (state->config_band_option_used)
+				GCFT8_OPTION_ERROR("Use either frequency or band, not both.\n");
+			state->config_frequency_option_used = true;
+		}
+		else
+		{
+			state->cli_frequency_option_used = true;
+			state->band_option_used = false;
+			state->selected_band[0] = '\0';
+		}
+		state->frequency_option_used = true;
+		if (!gcft8_parse_int_range(value, 1, INT_MAX, &FT8.Tranceiver_VFOA_Freq))
+			GCFT8_OPTION_ERROR("Invalid frequency '%s'. Use a positive integer frequency in Hz.\n", value);
+		break;
+	case CLI_OPTION_BAND:
+		GCFT8_REQUIRE_VALUE("--band");
+		if (source == GCFT8_OPTION_SOURCE_CONFIG)
+		{
+			if (state->config_frequency_option_used)
+				GCFT8_OPTION_ERROR("Use either frequency or band, not both.\n");
+			state->config_band_option_used = true;
+		}
+		else
+		{
+			state->cli_band_option_used = true;
+			state->frequency_option_used = false;
+		}
+		state->band_option_used = true;
+		copy_text(state->selected_band, sizeof(state->selected_band), value);
+		break;
+	case CLI_OPTION_FILTER:
+		GCFT8_REQUIRE_VALUE("--filter");
+		if (!ft8_parse_filter_mode(value, &FT8.filter_on_cq))
+			GCFT8_OPTION_ERROR("Invalid filter '%s'. Allowed filters: 0, 1, 2, 3, 4, 5, 6.\n", value);
+		break;
+	case CLI_OPTION_MAX_SAME_TX_REPEATS:
+		GCFT8_REQUIRE_VALUE("--max-same-tx-repeats");
+		if (!gcft8_parse_int_range(value, 1, 100, &gcft8_max_same_tx_repeats))
+			GCFT8_OPTION_ERROR("Invalid max same TX repeats '%s'. Use an integer from 1 to 100.\n", value);
+		break;
+	case CLI_OPTION_SNR_MIN:
+		GCFT8_REQUIRE_VALUE("--snr-min");
+		if (!gcft8_parse_snr_min(value, &gcft8_snr_min))
+			GCFT8_OPTION_ERROR("Invalid SNR minimum '%s'. Use an integer value, for example -18.\n", value);
+		gcft8_snr_min_enabled = true;
+		break;
+	case CLI_OPTION_ONLY_PREFIX:
+		GCFT8_REQUIRE_VALUE("--only-prefix");
+		if (!gcft8_parse_only_prefixes(value))
+			GCFT8_OPTION_ERROR("Invalid prefix list '%s'. Use comma-separated alphanumeric prefixes, for example JA,VK,ZL.\n", value);
+		break;
+	case CLI_OPTION_ONLY_SP_TAG:
+		GCFT8_REQUIRE_VALUE("--only-sp-tag");
+		if (!gcft8_parse_only_sp_tags(value))
+			GCFT8_OPTION_ERROR("Invalid special CQ tag list '%s'. Use comma-separated 1-4 letter tags or 3-digit tags, for example POTA,SOTA,DX.\n", value);
+		break;
+	case CLI_OPTION_ONLY_LOCATOR_ZONE:
+		GCFT8_REQUIRE_VALUE("--only-locator-zone");
+		if (!gcft8_parse_locator_zones(value))
+			GCFT8_OPTION_ERROR("Invalid locator zone list '%s'. Use comma-separated LL:LL ranges with A-R letters, for example BP:FL,IO:KM.\n", value);
+		break;
+	case CLI_OPTION_SERIAL_DEVICE:
+		GCFT8_REQUIRE_VALUE("--serial-device");
+		state->serial_device_option_used = true;
+		copy_text(serial.pathname, sizeof(serial.pathname), value);
+		break;
+	default:
+		GCFT8_OPTION_ERROR("Unknown option.\n");
+	}
+
+#undef GCFT8_REQUIRE_VALUE
+#undef GCFT8_OPTION_ERROR
+}
+
+static char* gcft8_config_trim(char* text)
+{
+	char* end;
+
+	if (text == NULL)
+		return NULL;
+
+	while (isspace((unsigned char)*text))
+		++text;
+
+	end = text + strlen(text);
+	while ((end > text) && isspace((unsigned char)end[-1]))
+		*--end = '\0';
+
+	return text;
+}
+
+static void gcft8_config_strip_inline_comment(char* text)
+{
+	char quote = '\0';
+
+	if (text == NULL)
+		return;
+
+	for (char* cursor = text; *cursor != '\0'; ++cursor)
+	{
+		if (quote != '\0')
+		{
+			if (*cursor == quote)
+				quote = '\0';
+			continue;
+		}
+
+		if ((*cursor == '\'') || (*cursor == '"'))
+		{
+			quote = *cursor;
+			continue;
+		}
+
+		if (*cursor == '#')
+		{
+			*cursor = '\0';
+			return;
+		}
+	}
+}
+
+static char* gcft8_config_unquote(char* value)
+{
+	size_t len;
+
+	if (value == NULL)
+		return NULL;
+
+	len = strlen(value);
+	if ((len >= 2) && (((value[0] == '"') && (value[len - 1] == '"')) || ((value[0] == '\'') && (value[len - 1] == '\''))))
+	{
+		value[len - 1] = '\0';
+		return value + 1;
+	}
+
+	return value;
+}
+
+static bool gcft8_config_option_id_from_name(const char* name, int* option_id, bool* requires_value)
+{
+	char normalized[64];
+	size_t out_len = 0;
+	static const gcft8_config_option_t options[] = {
+		{ "help", CLI_OPTION_HELP, false },
+		{ "beep", CLI_OPTION_BEEP, false },
+		{ "sound-device", CLI_OPTION_SOUND_DEVICE, true },
+		{ "callsign", CLI_OPTION_CALLSIGN, true },
+		{ "locator", CLI_OPTION_LOCATOR, true },
+		{ "mode", CLI_OPTION_MODE, true },
+		{ "frequency", CLI_OPTION_FREQUENCY, true },
+		{ "band", CLI_OPTION_BAND, true },
+		{ "filter", CLI_OPTION_FILTER, true },
+		{ "max-same-tx-repeats", CLI_OPTION_MAX_SAME_TX_REPEATS, true },
+		{ "snr-min", CLI_OPTION_SNR_MIN, true },
+		{ "only-prefix", CLI_OPTION_ONLY_PREFIX, true },
+		{ "only-sp-tag", CLI_OPTION_ONLY_SP_TAG, true },
+		{ "only-locator-zone", CLI_OPTION_ONLY_LOCATOR_ZONE, true },
+		{ "serial-device", CLI_OPTION_SERIAL_DEVICE, true }
+	};
+
+	if ((name == NULL) || (option_id == NULL) || (requires_value == NULL))
+		return false;
+
+	while (*name == '-')
+		++name;
+
+	if (*name == '\0')
+		return false;
+
+	for (; *name != '\0'; ++name)
+	{
+		if (out_len + 1 >= sizeof(normalized))
+			return false;
+		normalized[out_len++] = (*name == '_') ? '-' : (char)tolower((unsigned char)*name);
+	}
+	normalized[out_len] = '\0';
+
+	for (size_t idx = 0; idx < sizeof(options) / sizeof(options[0]); ++idx)
+	{
+		if (strcmp(normalized, options[idx].name) == 0)
+		{
+			*option_id = options[idx].option_id;
+			*requires_value = options[idx].requires_value;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void gcft8_load_config_file(const char* path, gcft8_option_state_t* state, const char* program_name)
+{
+	FILE* file;
+	char line[GCFT8_CONFIG_MAX_LINE];
+	int line_number = 0;
+
+	if ((path == NULL) || (state == NULL) || (program_name == NULL))
+		return;
+
+	file = fopen(path, "r");
+	if (file == NULL)
+	{
+		if (errno == ENOENT)
+			return;
+		fprintf(stderr, "Could not open %s: %s\n", path, strerror(errno));
+		exit(1);
+	}
+
+	while (fgets(line, sizeof(line), file) != NULL)
+	{
+		char* text;
+		char* name;
+		char* value = NULL;
+		char* separator;
+		int option_id;
+		bool requires_value;
+		size_t len;
+
+		++line_number;
+		len = strlen(line);
+		if ((len + 1 == sizeof(line)) && (line[len - 1] != '\n') && !feof(file))
+		{
+			fprintf(stderr, "%s:%d: configuration line is too long.\n", path, line_number);
+			fclose(file);
+			exit(1);
+		}
+
+		line[strcspn(line, "\r\n")] = '\0';
+		text = gcft8_config_trim(line);
+		if ((text == NULL) || (text[0] == '\0') || (text[0] == '#') || (text[0] == ';'))
+			continue;
+
+		gcft8_config_strip_inline_comment(text);
+		text = gcft8_config_trim(text);
+		if ((text == NULL) || (text[0] == '\0'))
+			continue;
+
+		name = text;
+		separator = strchr(text, '=');
+		if (separator != NULL)
+		{
+			*separator = '\0';
+			value = gcft8_config_trim(separator + 1);
+		}
+		else
+		{
+			separator = text;
+			while ((*separator != '\0') && !isspace((unsigned char)*separator))
+				++separator;
+
+			if (*separator != '\0')
+			{
+				*separator = '\0';
+				value = gcft8_config_trim(separator + 1);
+			}
+		}
+
+		name = gcft8_config_trim(name);
+		value = gcft8_config_unquote(gcft8_config_trim(value));
+
+		if ((name == NULL) || (name[0] == '\0'))
+		{
+			fprintf(stderr, "%s:%d: missing option name.\n", path, line_number);
+			fclose(file);
+			exit(1);
+		}
+
+		if (!gcft8_config_option_id_from_name(name, &option_id, &requires_value))
+		{
+			fprintf(stderr, "%s:%d: unknown configuration option '%s'.\n", path, line_number, name);
+			fclose(file);
+			exit(1);
+		}
+
+		if (requires_value && ((value == NULL) || (value[0] == '\0')))
+		{
+			fprintf(stderr, "%s:%d: missing value for '%s'.\n", path, line_number, name);
+			fclose(file);
+			exit(1);
+		}
+
+		gcft8_apply_option(option_id, value, state, GCFT8_OPTION_SOURCE_CONFIG, path, line_number, program_name);
+	}
+
+	if (ferror(file))
+	{
+		fprintf(stderr, "Error reading %s: %s\n", path, strerror(errno));
+		fclose(file);
+		exit(1);
+	}
+
+	fclose(file);
+}
+
 int main (int argc, char *argv[])
 {
 	int c;
-	bool callsign_option_used = false;
-	bool locator_option_used = false;
-	bool sound_device_option_used = false;
-	bool serial_device_option_used = false;
-	bool frequency_option_used = false;
-	bool band_option_used = false;
-	char selected_band[16] = "";
+	gcft8_option_state_t option_state;
 	static const struct option long_options[] = {
 		{ "help", no_argument, NULL, CLI_OPTION_HELP },
 		{ "beep", no_argument, NULL, CLI_OPTION_BEEP },
@@ -4081,106 +4508,22 @@ int main (int argc, char *argv[])
 		{ NULL, 0, NULL, 0 }
 	};
 
-	while ((c = getopt_long(argc, argv, "", long_options, NULL)) != -1)
-		switch (c)
+	memset(&option_state, 0, sizeof(option_state));
+
+	for (int arg_idx = 1; arg_idx < argc; ++arg_idx)
+	{
+		if (strcmp(argv[arg_idx], "--help") == 0)
 		{
-			case CLI_OPTION_HELP:
-				print_usage(argv[0], stdout);
-				exit(0);
-			case CLI_OPTION_BEEP:
-				FT8.beep_on_log = 1;
-				break;
-			case CLI_OPTION_SOUND_DEVICE:
-				sound_device_option_used = true;
-				sound.capture_sound_device = optarg;
-				sound.playback_sound_device = optarg;
-				break;
-			case CLI_OPTION_CALLSIGN:
-				callsign_option_used = true;
-				copy_text(FT8.Local_CALLSIGN, sizeof(FT8.Local_CALLSIGN), optarg);
-				break;
-			case CLI_OPTION_LOCATOR:
-				locator_option_used = true;
-				copy_text(FT8.Local_LOCATOR, sizeof(FT8.Local_LOCATOR), optarg);
-				break;
-			case CLI_OPTION_MODE:
-				if (!gcft8_parse_mode(optarg, &gcft8_mode))
-				{
-					fprintf(stderr, "Invalid mode '%s'. Allowed modes: ft8, ft4, ft2.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				break;
-			case CLI_OPTION_FREQUENCY:
-				frequency_option_used = true;
-				if (!gcft8_parse_int_range(optarg, 1, INT_MAX, &FT8.Tranceiver_VFOA_Freq))
-				{
-					fprintf(stderr, "Invalid frequency '%s'. Use a positive integer frequency in Hz.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				break;
-			case CLI_OPTION_BAND:
-				band_option_used = true;
-				copy_text(selected_band, sizeof(selected_band), optarg);
-				break;
-			case CLI_OPTION_FILTER:
-				if (!ft8_parse_filter_mode(optarg, &FT8.filter_on_cq))
-				{
-					fprintf(stderr, "Invalid filter '%s'. Allowed filters: 0, 1, 2, 3, 4, 5, 6.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				break;
-			case CLI_OPTION_MAX_SAME_TX_REPEATS:
-				if (!gcft8_parse_int_range(optarg, 1, 100, &gcft8_max_same_tx_repeats))
-				{
-					fprintf(stderr, "Invalid max same TX repeats '%s'. Use an integer from 1 to 100.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				break;
-			case CLI_OPTION_SNR_MIN:
-				if (!gcft8_parse_snr_min(optarg, &gcft8_snr_min))
-				{
-					fprintf(stderr, "Invalid SNR minimum '%s'. Use an integer value, for example -18.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				gcft8_snr_min_enabled = true;
-				break;
-			case CLI_OPTION_ONLY_PREFIX:
-				if (!gcft8_parse_only_prefixes(optarg))
-				{
-					fprintf(stderr, "Invalid prefix list '%s'. Use comma-separated alphanumeric prefixes, for example JA,VK,ZL.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				break;
-			case CLI_OPTION_ONLY_SP_TAG:
-				if (!gcft8_parse_only_sp_tags(optarg))
-				{
-					fprintf(stderr, "Invalid special CQ tag list '%s'. Use comma-separated 1-4 letter tags or 3-digit tags, for example POTA,SOTA,DX.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				break;
-			case CLI_OPTION_ONLY_LOCATOR_ZONE:
-				if (!gcft8_parse_locator_zones(optarg))
-				{
-					fprintf(stderr, "Invalid locator zone list '%s'. Use comma-separated LL:LL ranges with A-R letters, for example BP:FL,IO:KM.\n", optarg);
-					print_usage(argv[0], stderr);
-					exit(1);
-				}
-				break;
-			case CLI_OPTION_SERIAL_DEVICE:
-				serial_device_option_used = true;
-				copy_text(serial.pathname, sizeof(serial.pathname), optarg);
-				break;
-			default:
-				print_usage(argv[0], stderr);
-				exit(1);
+			print_usage(argv[0], stdout);
+			exit(0);
 		}
+	}
+
+	gcft8_load_config_file(GCFT8_CONFIG_FILE, &option_state, argv[0]);
+
+	optind = 1;
+	while ((c = getopt_long(argc, argv, "", long_options, NULL)) != -1)
+		gcft8_apply_option(c, optarg, &option_state, GCFT8_OPTION_SOURCE_CLI, NULL, 0, argv[0]);
 
 	if (optind < argc)
 	{
@@ -4189,55 +4532,55 @@ int main (int argc, char *argv[])
 		exit(1);
 	}
 
-	if (frequency_option_used && band_option_used)
+	if (option_state.cli_frequency_option_used && option_state.cli_band_option_used)
 	{
 		fprintf(stderr, "Use either --frequency or --band, not both.\n");
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
-	if (!frequency_option_used && !band_option_used)
+	if (!option_state.frequency_option_used && !option_state.band_option_used)
 	{
 		fprintf(stderr, "Missing required frequency selection: use either --frequency or --band.\n");
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
-	if (!callsign_option_used || (FT8.Local_CALLSIGN[0] == '\0'))
+	if (!option_state.callsign_option_used || (FT8.Local_CALLSIGN[0] == '\0'))
 	{
 		fprintf(stderr, "Missing required --callsign.\n");
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
-	if (!locator_option_used || (FT8.Local_LOCATOR[0] == '\0'))
+	if (!option_state.locator_option_used || (FT8.Local_LOCATOR[0] == '\0'))
 	{
 		fprintf(stderr, "Missing required --locator.\n");
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
-	if (!sound_device_option_used || (sound.capture_sound_device == NULL) || (sound.capture_sound_device[0] == '\0'))
+	if (!option_state.sound_device_option_used || (sound.capture_sound_device == NULL) || (sound.capture_sound_device[0] == '\0'))
 	{
 		fprintf(stderr, "Missing required --sound-device.\n");
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
-	if (!serial_device_option_used || (serial.pathname[0] == '\0'))
+	if (!option_state.serial_device_option_used || (serial.pathname[0] == '\0'))
 	{
 		fprintf(stderr, "Missing required --serial-device.\n");
 		print_usage(argv[0], stderr);
 		exit(1);
 	}
 
-	if (band_option_used)
+	if (option_state.band_option_used)
 	{
-		if (!gcft8_frequency_for_band(selected_band, gcft8_mode, &FT8.Tranceiver_VFOA_Freq))
+		if (!gcft8_frequency_for_band(option_state.selected_band, gcft8_mode, &FT8.Tranceiver_VFOA_Freq))
 		{
-			fprintf(stderr, "Invalid %s band '%s'. Use --help to list supported bands.\n", gcft8_current_mode_config()->name, selected_band);
+			fprintf(stderr, "Invalid %s band '%s'. Use --help to list supported bands.\n", gcft8_current_mode_config()->name, option_state.selected_band);
 			print_usage(argv[0], stderr);
 			exit(1);
 		}
-		gcft8_set_filter_band_context(selected_band);
+		gcft8_set_filter_band_context(option_state.selected_band);
 		gcft8_filter_frequency_mhz = FT8.Tranceiver_VFOA_Freq / 1000000;
 	}
-	else if (frequency_option_used)
+	else if (option_state.frequency_option_used)
 	{
 		gcft8_set_filter_frequency_context(FT8.Tranceiver_VFOA_Freq);
 	}

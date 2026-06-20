@@ -37,6 +37,28 @@ make
 ./gcFT8 --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --max-same-tx-repeats 6 --beep
 ```
 
+## Configuration File
+
+If `gcFT8.conf` exists in the project root/current directory, `gcFT8` loads options from it before parsing command-line options. Command-line options override values from the file.
+
+Format: one option per line, with optional `#` comments. Option names are the same as the long command-line options, with or without `--`.
+
+```text
+mode=ft8
+sound-device=plughw:CARD=PCH,DEV=0
+callsign=F4JJJ
+locator=JN38
+band=20
+serial-device=/dev/ttyACM0
+filter=1
+max-same-tx-repeats=6
+snr-min=-18
+only-prefix=JA,VK,ZL
+only-sp-tag=POTA,SOTA
+only-locator-zone=BP:FL,IO:KM
+beep=true
+```
+
 ## Automatic CQ Selection Examples
 
 Randomly select CQ calls at or above -18 dB:
