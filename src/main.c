@@ -46,6 +46,9 @@
 #define GCFTX_DEFAULT_CONFIG_FILE "gcFTx.conf"
 #define GCFTX_CONFIG_MAX_LINE 1024
 #define GCFTX_SOUND_DEVICE_TEXT_SIZE 256
+#define GCFTX_RX_VIEW_FORMAT_SIZE 512
+#define GCFTX_RX_VIEW_LINE_SIZE 1024
+#define GCFTX_DEFAULT_RX_VIEW_FORMAT "%Y-%m-%d %H:%M:%S %SNR %SCORE %DT %FREQ ~  %TXT"
 
 #define FTX_FILTER_LISTEN_ONLY 0
 #define FTX_FILTER_RANDOM_CQ 1
@@ -302,7 +305,11 @@ static int gcftx_max_same_tx_repeats = GCFTX_MAX_SAME_TX_REPEATS;
 static HashTable* ht_callsigntable_for_filter;
 static gcftx_tx_context_t gcftx_tx_context;
 static gcftx_rx_context_t gcftx_rx_context;
+static char gcftx_rx_view_format[GCFTX_RX_VIEW_FORMAT_SIZE] = GCFTX_DEFAULT_RX_VIEW_FORMAT;
 
+static double now(void);
+static void clear_status_line(void);
+static const gcftx_mode_config_t* gcftx_current_mode_config(void);
 static bool gcftx_snr_filter_rejects(int snr);
 static bool gcftx_prefix_filter_rejects(const char* callsign);
 static bool gcftx_locator_zone_filter_rejects(const char* locator);
@@ -557,10 +564,172 @@ static gcftx_display_class_t gcftx_display_class_for_candidate(const gcftx_rx_ca
 	return GCFTX_DISPLAY_NORMAL;
 }
 
+static void gcftx_slot_time(struct tm* tm_out, int* ms_out)
+{
+	const gcftx_mode_config_t* mode_cfg = gcftx_current_mode_config();
+	long long slot_ms = (long long)(mode_cfg->slot_time * 1000.0f + 0.5f);
+	long long now_ms = (long long)(now() * 1000.0);
+	long long slot_start_ms;
+	time_t t;
+	struct tm* tm_ptr;
+
+	if (slot_ms <= 0)
+		slot_ms = 15000;
+
+	slot_start_ms = (now_ms / slot_ms) * slot_ms;
+	t = (time_t)(slot_start_ms / 1000);
+
+	if (ms_out != NULL)
+		*ms_out = (int)(slot_start_ms % 1000);
+
+	if (tm_out == NULL)
+		return;
+
+	tm_ptr = gmtime(&t);
+	if (tm_ptr != NULL)
+		*tm_out = *tm_ptr;
+	else
+		memset(tm_out, 0, sizeof(*tm_out));
+}
+
+static bool gcftx_view_append(char* dst, size_t dst_size, size_t* offset, const char* text, size_t text_len)
+{
+	if ((dst == NULL) || (dst_size == 0) || (offset == NULL) || (text == NULL))
+		return false;
+
+	if (*offset >= dst_size)
+		return false;
+
+	if (text_len >= dst_size - *offset)
+		text_len = dst_size - *offset - 1;
+
+	memcpy(dst + *offset, text, text_len);
+	*offset += text_len;
+	dst[*offset] = '\0';
+	return true;
+}
+
+static bool gcftx_view_append_text(char* dst, size_t dst_size, size_t* offset, const char* text)
+{
+	if (text == NULL)
+		text = "";
+
+	return gcftx_view_append(dst, dst_size, offset, text, strlen(text));
+}
+
+static size_t gcftx_strftime_token_length(const char* format)
+{
+	if ((format == NULL) || (format[0] != '%'))
+		return 0;
+
+	if (format[1] == '\0')
+		return 1;
+
+	for (size_t len = 2; format[len - 1] != '\0'; ++len)
+	{
+		unsigned char ch = (unsigned char)format[len - 1];
+		if ((ch == '%') || isalpha(ch))
+			return len;
+	}
+
+	return strlen(format);
+}
+
+static void gcftx_format_rx_candidate(const gcftx_rx_candidate_t* candidate, const char* color_start, const char* color_end, char* dst, size_t dst_size)
+{
+	struct tm slot_tm;
+	size_t offset = 0;
+	const char* format = gcftx_rx_view_format;
+	int slot_ms;
+
+	if ((candidate == NULL) || (dst == NULL) || (dst_size == 0))
+		return;
+
+	dst[0] = '\0';
+	gcftx_slot_time(&slot_tm, &slot_ms);
+	(void)slot_ms;
+
+	if (format[0] == '+')
+		++format;
+
+	for (size_t idx = 0; format[idx] != '\0'; )
+	{
+		char text[64];
+
+		if (strncmp(format + idx, "%SCORE", 6) == 0)
+		{
+			snprintf(text, sizeof(text), "%3d", candidate->score);
+			gcftx_view_append_text(dst, dst_size, &offset, text);
+			idx += 6;
+			continue;
+		}
+		if (strncmp(format + idx, "%SNR", 4) == 0)
+		{
+			snprintf(text, sizeof(text), "%d", candidate->snr);
+			gcftx_view_append_text(dst, dst_size, &offset, text);
+			idx += 4;
+			continue;
+		}
+		if (strncmp(format + idx, "%DT", 3) == 0)
+		{
+			snprintf(text, sizeof(text), "%+4.2f", candidate->time_sec);
+			gcftx_view_append_text(dst, dst_size, &offset, text);
+			idx += 3;
+			continue;
+		}
+		if (strncmp(format + idx, "%FREQ", 5) == 0)
+		{
+			snprintf(text, sizeof(text), "%4.0f", candidate->frequency_hz);
+			gcftx_view_append_text(dst, dst_size, &offset, text);
+			idx += 5;
+			continue;
+		}
+		if (strncmp(format + idx, "%TXT", 4) == 0)
+		{
+			gcftx_view_append_text(dst, dst_size, &offset, color_start);
+			gcftx_view_append_text(dst, dst_size, &offset, candidate->decoded.text);
+			gcftx_view_append_text(dst, dst_size, &offset, color_end);
+			idx += 4;
+			continue;
+		}
+
+		if (format[idx] == '%')
+		{
+			char token[32];
+			char rendered[128];
+			size_t rendered_len;
+			size_t token_len = gcftx_strftime_token_length(format + idx);
+			if (token_len >= sizeof(token))
+				token_len = sizeof(token) - 1;
+			memcpy(token, format + idx, token_len);
+			token[token_len] = '\0';
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
+			rendered_len = strftime(rendered, sizeof(rendered), token, &slot_tm);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+			if (rendered_len > 0)
+				gcftx_view_append_text(dst, dst_size, &offset, rendered);
+			else
+				gcftx_view_append_text(dst, dst_size, &offset, token);
+			idx += token_len;
+			continue;
+		}
+
+		gcftx_view_append(dst, dst_size, &offset, format + idx, 1);
+		++idx;
+	}
+}
+
 static void gcftx_display_rx_candidate(const gcftx_rx_candidate_t* candidate)
 {
 	const char* color_start = "";
 	const char* color_end = "";
+	char line[GCFTX_RX_VIEW_LINE_SIZE];
 
 	if (candidate == NULL)
 		return;
@@ -592,8 +761,9 @@ static void gcftx_display_rx_candidate(const gcftx_rx_candidate_t* candidate)
 		break;
 	}
 
-	printDateTime_log();
-	printf(" %d %3d %+4.2f %4.0f ~  %s%s%s\n", candidate->snr, candidate->score, candidate->time_sec, candidate->frequency_hz, color_start, candidate->decoded.text, color_end);
+	clear_status_line();
+	gcftx_format_rx_candidate(candidate, color_start, color_end, line, sizeof(line));
+	printf("%s\n", line);
 }
 
 static bool gcftx_ensure_float_buffer(float** buffer, size_t* capacity, size_t required)
@@ -3992,6 +4162,7 @@ static void print_usage(const char* program_name, FILE* stream)
 		"  --band <band>              Required if --frequency is absent; exclusive with --frequency; suffix m is allowed\n"
 		"  --serial-device <device>   Required transceiver serial device\n"
 		"  --filter <mode>            Operating/filter mode (default: 0, listen only)\n"
+		"  --defview <format>         RX display format, default: \"%s\"\n"
 		"  --max-same-tx-repeats <n>  Maximum repeated TX attempts for the same sequence, 1-100 (default: %d)\n"
 		"  --snr-min <snr>            Reject CQ candidates below this SNR, for example -18\n"
 		"  --only-prefix <list>       Only auto-select CQ callsigns with these prefixes, for example JA,VK,ZL\n"
@@ -4013,6 +4184,7 @@ static void print_usage(const char* program_name, FILE* stream)
 		program_name,
 		program_name,
 		GCFTX_MAX_SAME_TX_REPEATS,
+		GCFTX_DEFAULT_RX_VIEW_FORMAT,
 		GCFTX_MAX_SAME_TX_REPEATS);
 
 	for (size_t idx = 0; idx < sizeof(gcftx_band_frequencies) / sizeof(gcftx_band_frequencies[0]); ++idx)
@@ -4061,7 +4233,8 @@ enum
 	CLI_OPTION_ONLY_LOCATOR_ZONE,
 	CLI_OPTION_SERIAL_DEVICE,
 	CLI_OPTION_MAX_SAME_TX_REPEATS,
-	CLI_OPTION_CONF_FILE
+	CLI_OPTION_CONF_FILE,
+	CLI_OPTION_DEFVIEW
 };
 
 typedef enum
@@ -4131,6 +4304,21 @@ static bool gcftx_parse_config_bool(const char* value, bool* result)
 	}
 
 	return false;
+}
+
+static bool gcftx_set_rx_view_format(const char* value)
+{
+	if (value == NULL)
+		return false;
+
+	if (value[0] == '+')
+		++value;
+
+	if ((value[0] == '\0') || (strlen(value) >= sizeof(gcftx_rx_view_format)))
+		return false;
+
+	copy_text(gcftx_rx_view_format, sizeof(gcftx_rx_view_format), value);
+	return true;
 }
 
 static void gcftx_apply_option(int option_id, const char* value, gcftx_option_state_t* state, gcftx_option_source_t source, const char* source_name, int source_line, const char* program_name)
@@ -4231,6 +4419,11 @@ static void gcftx_apply_option(int option_id, const char* value, gcftx_option_st
 		GCFTX_REQUIRE_VALUE("--filter");
 		if (!ftx_parse_filter_mode(value, &FTX.filter_on_cq))
 			GCFTX_OPTION_ERROR("Invalid filter '%s'. Allowed filters: 0, 1, 2, 3, 4, 5, 6.\n", value);
+		break;
+	case CLI_OPTION_DEFVIEW:
+		GCFTX_REQUIRE_VALUE("--defview");
+		if (!gcftx_set_rx_view_format(value))
+			GCFTX_OPTION_ERROR("Invalid RX display format. Use a non-empty format shorter than %d characters.\n", GCFTX_RX_VIEW_FORMAT_SIZE);
 		break;
 	case CLI_OPTION_MAX_SAME_TX_REPEATS:
 		GCFTX_REQUIRE_VALUE("--max-same-tx-repeats");
@@ -4349,6 +4542,7 @@ static bool gcftx_config_option_id_from_name(const char* name, int* option_id, b
 		{ "frequency", CLI_OPTION_FREQUENCY, true },
 		{ "band", CLI_OPTION_BAND, true },
 		{ "filter", CLI_OPTION_FILTER, true },
+		{ "defview", CLI_OPTION_DEFVIEW, true },
 		{ "max-same-tx-repeats", CLI_OPTION_MAX_SAME_TX_REPEATS, true },
 		{ "snr-min", CLI_OPTION_SNR_MIN, true },
 		{ "only-prefix", CLI_OPTION_ONLY_PREFIX, true },
@@ -4508,6 +4702,7 @@ int main (int argc, char *argv[])
 		{ "frequency", required_argument, NULL, CLI_OPTION_FREQUENCY },
 		{ "band", required_argument, NULL, CLI_OPTION_BAND },
 		{ "filter", required_argument, NULL, CLI_OPTION_FILTER },
+		{ "defview", required_argument, NULL, CLI_OPTION_DEFVIEW },
 		{ "max-same-tx-repeats", required_argument, NULL, CLI_OPTION_MAX_SAME_TX_REPEATS },
 		{ "snr-min", required_argument, NULL, CLI_OPTION_SNR_MIN },
 		{ "only-prefix", required_argument, NULL, CLI_OPTION_ONLY_PREFIX },
@@ -4658,6 +4853,7 @@ int main (int argc, char *argv[])
 		"-Sound device is %s\n"
 		"-ADIF log file is %s\n"
 		"-CQ filter method is %d (%s)\n"
+		"-RX display format is %s\n"
 		"-Max same TX repeats is %d\n"
 		"-SNR minimum filter is %s\n"
 		"-Prefix filter is %s\n"
@@ -4673,6 +4869,7 @@ int main (int argc, char *argv[])
 		FTX.log_file_name,
 		FTX.filter_on_cq,
 		ftx_filter_mode_name(FTX.filter_on_cq),
+		gcftx_rx_view_format,
 		gcftx_max_same_tx_repeats,
 		startup_snr_min_text,
 		startup_prefix_filter,

@@ -39,6 +39,12 @@ make
 ./gcFTx --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0 --filter 1 --max-same-tx-repeats 6 --beep
 ```
 
+Custom RX display format:
+
+```bash
+./gcFTx --defview "%m-%d %H:%M:%S %SNR %SCORE %DT %FREQ ~ %TXT" --mode ft8 --sound-device plughw:CARD=PCH,DEV=0 --callsign F4JJJ --locator JN38 --band 20 --serial-device /dev/ttyACM0
+```
+
 ## Configuration File
 
 If `gcFTx.conf` exists in the current directory, `gcFTx` loads options from it before parsing command-line options. Use `--conf-file <path>` to load another configuration file instead. Command-line options override values from the loaded file.
@@ -53,6 +59,7 @@ locator=JN38
 band=20
 serial-device=/dev/ttyACM0
 filter=1
+defview=%Y-%m-%d %H:%M:%S %SNR %SCORE %DT %FREQ ~  %TXT
 max-same-tx-repeats=6
 snr-min=-18
 only-prefix=JA,VK,ZL
@@ -106,6 +113,7 @@ Combine filters before the final automatic CQ choice:
 --band <80|60|40|30|20|17|15|12|11|10>
 --serial-device <device>
 --filter <0..6>
+--defview <format>
 --max-same-tx-repeats <1..100>
 --snr-min <snr>
 --only-prefix <prefix[,prefix...]>
@@ -117,6 +125,8 @@ Combine filters before the final automatic CQ choice:
 The following options are required: `--sound-device`, `--callsign`, `--locator`, `--serial-device`, and exactly one of `--frequency` or `--band`.
 
 `--frequency` and `--band` are mutually exclusive. There is no default band or frequency.
+
+`--defview` controls decoded RX line formatting. Date/time tokens use `strftime` syntax such as `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`; custom tokens are `%SNR`, `%SCORE`, `%DT`, `%FREQ`, and `%TXT`. A leading `+` is accepted like `date +FORMAT` and is not displayed.
 
 `--max-same-tx-repeats` is optional and defaults to `6`. It limits repeated transmissions of the same QSO sequence, including repeated `seq 0` answers to a CQ from the same station. CQ messages blocked by this limit are displayed in gray.
 
