@@ -4,6 +4,10 @@ DEBUG_CFLAGS ?= -std=c99 -O0 -ggdb3 -fsanitize=address -march=native -D_GNU_SOUR
 LDFLAGS ?=
 DEBUG_LDFLAGS ?= -fsanitize=address
 LDLIBS += -lm -lasound -pthread
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+LIBDIR ?= $(PREFIX)/lib
+INSTALL ?= install
 
 TARGET = gcFT8
 DEBUG_TARGET = gcFT8-debug
@@ -34,7 +38,7 @@ SRCS = \
 RELEASE_OBJS = $(SRCS:src/%.c=$(RELEASE_OBJDIR)/%.o)
 DEBUG_OBJS = $(SRCS:src/%.c=$(DEBUG_OBJDIR)/%.o)
 
-.PHONY: run_tests all debug clean install
+.PHONY: run_tests all debug clean install uninstall
 
 all: $(TARGET)
 
@@ -59,4 +63,10 @@ clean:
 
 install: all
 	$(AR) rc libftx.a $(RELEASE_OBJDIR)/protocol/ftx/constants.o $(RELEASE_OBJDIR)/protocol/ftx/encode.o $(RELEASE_OBJDIR)/protocol/ftx/encode_4tone.o $(RELEASE_OBJDIR)/protocol/ft8/ft8_encode.o $(RELEASE_OBJDIR)/protocol/ft4/ft4_encode.o $(RELEASE_OBJDIR)/protocol/ft2/ft2_encode.o $(RELEASE_OBJDIR)/protocol/ftx/message.o $(RELEASE_OBJDIR)/protocol/ftx/text.o
-	install libftx.a /usr/lib/libftx.a
+	$(INSTALL) -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(LIBDIR)
+	$(INSTALL) -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(TARGET)
+	$(INSTALL) -m 644 libftx.a $(DESTDIR)$(LIBDIR)/libftx.a
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/$(TARGET)
+	rm -f $(DESTDIR)$(LIBDIR)/libftx.a
